@@ -2,7 +2,13 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CompanyController;
+use App\Http\Controllers\Api\CollateralController;
 use App\Http\Controllers\Api\ContactController;
+use App\Http\Controllers\Api\DealController;
+use App\Http\Controllers\Api\PipelineController;
+use App\Http\Controllers\Api\PipelineStageController;
+use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\QuoteController;
 use App\Http\Controllers\Api\TenantController;
 use App\Http\Controllers\Api\TeamController;
 use App\Http\Controllers\Api\UserManagementController;
@@ -21,6 +27,10 @@ Route::middleware('throttle:login')->group(function (): void {
 Route::get('/email/verify/{id}/{hash}', [AuthController::class, 'verifyEmail'])
     ->middleware(['signed', 'throttle:verify-email'])
     ->name('verification.verify');
+
+Route::get('/quotes/public/{token}', [QuoteController::class, 'publicShow']);
+Route::post('/quotes/public/{token}/accept', [QuoteController::class, 'publicAccept']);
+Route::post('/quotes/public/{token}/reject', [QuoteController::class, 'publicReject']);
 
 Route::middleware(['auth:sanctum', 'tenant.context'])->group(function (): void {
     Route::post('/email/verification-notification', [AuthController::class, 'resendVerification'])
@@ -43,6 +53,8 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function (): void {
 
     Route::get('/companies', [CompanyController::class, 'index']);
     Route::post('/companies', [CompanyController::class, 'store']);
+    Route::get('/companies/export', [CompanyController::class, 'export']);
+    Route::post('/companies/import', [CompanyController::class, 'import']);
     Route::put('/companies/{companyId}', [CompanyController::class, 'update']);
     Route::delete('/companies/{companyId}', [CompanyController::class, 'destroy']);
 
@@ -54,4 +66,47 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function (): void {
     Route::put('/contacts/{contactId}', [ContactController::class, 'update']);
     Route::delete('/contacts/{contactId}', [ContactController::class, 'destroy']);
     Route::post('/contacts/{contactId}/activities', [ContactController::class, 'addActivity']);
+    Route::post('/contacts/{contactId}/attach-company', [ContactController::class, 'attachCompany']);
+    Route::post('/contacts/{contactId}/detach-company', [ContactController::class, 'detachCompany']);
+
+    Route::get('/pipelines', [PipelineController::class, 'index']);
+    Route::post('/pipelines', [PipelineController::class, 'store']);
+    Route::put('/pipelines/{pipelineId}', [PipelineController::class, 'update']);
+    Route::delete('/pipelines/{pipelineId}', [PipelineController::class, 'destroy']);
+    Route::get('/pipelines/{pipelineId}/stages', [PipelineStageController::class, 'index']);
+    Route::post('/pipelines/{pipelineId}/stages', [PipelineStageController::class, 'store']);
+    Route::put('/pipelines/{pipelineId}/stages/{stageId}', [PipelineStageController::class, 'update']);
+    Route::delete('/pipelines/{pipelineId}/stages/{stageId}', [PipelineStageController::class, 'destroy']);
+
+    Route::get('/deals', [DealController::class, 'index']);
+    Route::post('/deals', [DealController::class, 'store']);
+    Route::get('/deals/{dealId}', [DealController::class, 'show']);
+    Route::put('/deals/{dealId}', [DealController::class, 'update']);
+    Route::delete('/deals/{dealId}', [DealController::class, 'destroy']);
+    Route::post('/deals/{dealId}/move-stage', [DealController::class, 'moveStage']);
+    Route::patch('/deals/{dealId}/status', [DealController::class, 'updateStatus']);
+
+    Route::get('/products', [ProductController::class, 'index']);
+    Route::post('/products', [ProductController::class, 'store']);
+    Route::get('/products/{productId}', [ProductController::class, 'show']);
+    Route::put('/products/{productId}', [ProductController::class, 'update']);
+    Route::delete('/products/{productId}', [ProductController::class, 'destroy']);
+    Route::patch('/products/{productId}/status', [ProductController::class, 'updateStatus']);
+
+    Route::post('/collaterals', [CollateralController::class, 'store']);
+    Route::get('/collaterals', [CollateralController::class, 'index']);
+    Route::get('/collaterals/{collateralId}', [CollateralController::class, 'show']);
+    Route::delete('/collaterals/{collateralId}', [CollateralController::class, 'destroy']);
+    Route::post('/collaterals/{collateralId}/send', [CollateralController::class, 'send']);
+
+    Route::get('/quotes', [QuoteController::class, 'index']);
+    Route::get('/quote-layouts', [QuoteController::class, 'layouts']);
+    Route::post('/quotes/preview-prices', [QuoteController::class, 'previewPrices']);
+    Route::post('/quotes', [QuoteController::class, 'store']);
+    Route::get('/quotes/{quoteId}', [QuoteController::class, 'show']);
+    Route::put('/quotes/{quoteId}', [QuoteController::class, 'update']);
+    Route::delete('/quotes/{quoteId}', [QuoteController::class, 'destroy']);
+    Route::patch('/quotes/{quoteId}/status', [QuoteController::class, 'updateStatus']);
+    Route::post('/quotes/{quoteId}/attachments', [QuoteController::class, 'uploadAttachment']);
+    Route::post('/quotes/{quoteId}/send', [QuoteController::class, 'send']);
 });

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Company\CreateCompanyRequest;
+use App\Http\Requests\Company\ImportCompaniesRequest;
 use App\Http\Requests\Company\ListCompaniesRequest;
 use App\Http\Requests\Company\UpdateCompanyRequest;
 use App\Http\Resources\CompanyResource;
@@ -12,6 +13,7 @@ use App\Services\Contact\ContactManagementService;
 use App\Support\DomainConstants;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CompanyController extends Controller
 {
@@ -59,5 +61,55 @@ class CompanyController extends Controller
         $this->service->deleteCompany($request->user(), $companyId);
 
         return $this->successResponse(DomainConstants::MSG_COMPANY_DELETED);
+    }
+
+    public function import(ImportCompaniesRequest $request): JsonResponse
+    {
+        $stats = $this->service->importCompanies(
+            $request->user(),
+            $request->file('file'),
+            $request->validated('tenant_id')
+        );
+
+        return $this->successResponse(DomainConstants::MSG_COMPANY_IMPORT_COMPLETED, $stats);
+    }
+
+    public function export(Request $request): StreamedResponse
+    {
+        $rows = $this->service->exportCompanyRows($request->user(), $request->query());
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="companies-export.csv"',
+        ];
+
+        return response()->stream(function () use ($rows): void {
+            $out = fopen('php://output', 'wb');
+            fputcsv($out, [
+                'id',
+                'name',
+                'industry',
+                'company_type',
+                'employees',
+                'revenue',
+                'phone',
+                'email',
+                'website',
+                'timezone',
+                'linkedin_url',
+                'address',
+                'city',
+                'state',
+                'postal_code',
+                'country',
+                'description',
+                'assigned_user',
+                'created_by',
+                'status',
+            ]);
+            foreach ($rows as $row) {
+                fputcsv($out, $row);
+            }
+            fclose($out);
+        }, 200, $headers);
     }
 }

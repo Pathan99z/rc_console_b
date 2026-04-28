@@ -78,6 +78,16 @@ class ContactRepository
         return $query;
     }
 
+    public function emailExistsForTenant(int $tenantId, string $email, ?int $ignoreContactId = null): bool
+    {
+        return Contact::query()
+            ->where('tenant_id', $tenantId)
+            ->where('email', strtolower($email))
+            ->whereNull('deleted_at')
+            ->when($ignoreContactId !== null, fn (Builder $q) => $q->where('id', '!=', $ignoreContactId))
+            ->exists();
+    }
+
     private function applyVisibilityScope(Builder $query, User $actor): void
     {
         if ($actor->isGlobalAdmin() || $actor->isCompanyAdmin()) {

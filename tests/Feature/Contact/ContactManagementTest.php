@@ -5,6 +5,7 @@ namespace Tests\Feature\Contact;
 use App\Models\Tenant;
 use App\Models\Team;
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -25,14 +26,40 @@ class ContactManagementTest extends TestCase
             'status' => User::STATUS_ACTIVE,
             'email_verified_at' => now(),
         ]);
+        $assignee = User::query()->create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Company Assignee',
+            'email' => 'company-assignee@example.com',
+            'password' => 'secret123',
+            'role' => 'user',
+            'status' => User::STATUS_ACTIVE,
+            'email_verified_at' => now(),
+        ]);
 
         Sanctum::actingAs($admin);
 
         $companyResponse = $this->postJson('/api/companies', [
             'name' => 'Acme Labs',
+            'industry' => 'Software',
+            'company_type' => 'Enterprise',
+            'employees' => 150,
+            'revenue' => 5000000,
+            'timezone' => 'Africa/Johannesburg',
+            'linkedin_url' => 'https://linkedin.com/company/acme-labs',
+            'address' => '123 Main Street',
+            'city' => 'Johannesburg',
+            'state' => 'GP',
+            'postal_code' => '2001',
+            'country' => 'South Africa',
+            'description' => 'Leading technology company.',
             'email' => 'hello@acme.com',
+            'assigned_user_id' => $assignee->id,
         ]);
         $companyResponse->assertCreated();
+        $companyResponse->assertJsonPath('data.company.assigned_user.id', $assignee->id);
+        $companyResponse->assertJsonPath('data.company.created_by_user.id', $admin->id);
+        $companyResponse->assertJsonPath('data.company.industry', 'Software');
+        $companyResponse->assertJsonPath('data.company.country', 'South Africa');
         $companyId = (int) $companyResponse->json('data.company.id');
 
         $this->postJson('/api/contacts', [
@@ -127,5 +154,153 @@ class ContactManagementTest extends TestCase
         $this->assertDatabaseHas('contacts', ['id' => $contactId, 'lifecycle_stage' => 2]);
         $this->assertDatabaseHas('contact_activities', ['contact_id' => $contactId, 'note' => 'Followed up by phone']);
         $this->assertDatabaseHas('contacts', ['id' => $contactId, 'updated_by_user_id' => $user->id]);
+    }
+
+    public function test_company_assigned_user_must_belong_to_same_tenant(): void
+    {
+        $tenantA = Tenant::query()->create(['name' => 'Tenant A', 'status' => Tenant::STATUS_ACTIVE]);
+        $tenantB = Tenant::query()->create(['name' => 'Tenant B', 'status' => Tenant::STATUS_ACTIVE]);
+        $admin = User::query()->create([
+            'tenant_id' => $tenantA->id,
+            'name' => 'Company Admin',
+            'email' => 'company-admin-assigned@example.com',
+            'password' => 'secret123',
+            'role' => 'company_admin',
+            'status' => User::STATUS_ACTIVE,
+            'email_verified_at' => now(),
+        ]);
+        $otherTenantUser = User::query()->create([
+            'tenant_id' => $tenantB->id,
+            'name' => 'Other Tenant User',
+            'email' => 'other-tenant-user@example.com',
+            'password' => 'secret123',
+            'role' => 'user',
+            'status' => User::STATUS_ACTIVE,
+            'email_verified_at' => now(),
+        ]);
+
+        Sanctum::actingAs($admin);
+
+        $this->postJson('/api/companies', [
+            'name' => 'Acme Labs',
+            'assigned_user_id' => $otherTenantUser->id,
+        ])->assertStatus(404);
+    }
+
+    public function test_company_import_and_export_work(): void
+    {
+        $tenant = Tenant::query()->create(['name' => 'Tenant A', 'status' => Tenant::STATUS_ACTIVE]);
+        $admin = User::query()->create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Company Admin',
+            'email' => 'company-admin-import@example.com',
+            'password' => 'secret123',
+            'role' => 'company_admin',
+            'status' => User::STATUS_ACTIVE,
+            'email_verified_at' => now(),
+        ]);
+
+        Sanctum::actingAs($admin);
+
+        $csv = <<<CSV
+name,industry,company_type,employees,revenue,phone,email,website,timezone,linkedin_url,address,city,state,postal_code,country,description,status
+Acme One,Software,Enterprise,120,4000000,+27-11-123-4567,contact@acmeone.com,https://acmeone.com,Africa/Johannesburg,https://linkedin.com/company/acmeone,123 Main Street,Johannesburg,GP,2001,South Africa,Leading company,1
+,Software,Enterprise,50,1000000,+27-11-000-0000,skip@example.com,https://skip.com,Africa/Johannesburg,https://linkedin.com/company/skip,1 Skip Street,Johannesburg,GP,2001,South Africa,Should skip,1
+CSV;
+        $file = UploadedFile::fake()->createWithContent('companies.csv', $csv);
+
+        $this->postJson('/api/companies/import', ['file' => $file])
+            ->assertOk()
+            ->assertJsonPath('data.created', 1)
+            ->assertJsonPath('data.skipped', 1);
+
+        $export = $this->get('/api/companies/export');
+        $export->assertOk();
+        $this->assertStringContainsString('Acme One', $export->streamedContent());
+    }
+
+    public function test_attach_and_detach_company_endpoints_work(): void
+    {
+        $tenant = Tenant::query()->create(['name' => 'Tenant A', 'status' => Tenant::STATUS_ACTIVE]);
+        $admin = User::query()->create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Company Admin',
+            'email' => 'company-admin-attach@example.com',
+            'password' => 'secret123',
+            'role' => 'company_admin',
+            'status' => User::STATUS_ACTIVE,
+            'email_verified_at' => now(),
+        ]);
+
+        Sanctum::actingAs($admin);
+
+        $company = $this->postJson('/api/companies', [
+            'name' => 'Attach Co',
+        ])->assertCreated()->json('data.company');
+
+        $contact = $this->postJson('/api/contacts', [
+            'first_name' => 'Attach',
+            'last_name' => 'Target',
+        ])->assertCreated()->json('data.contact');
+
+        $this->postJson('/api/contacts/'.$contact['id'].'/attach-company', [
+            'company_id' => $company['id'],
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.contact.company.id', $company['id']);
+
+        $this->postJson('/api/contacts/'.$contact['id'].'/detach-company')
+            ->assertOk()
+            ->assertJsonPath('data.contact.company', null);
+    }
+
+    public function test_contact_email_must_be_unique_per_tenant(): void
+    {
+        $tenant = Tenant::query()->create(['name' => 'Tenant A', 'status' => Tenant::STATUS_ACTIVE]);
+        $admin = User::query()->create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Company Admin',
+            'email' => 'company-admin-unique-contact@example.com',
+            'password' => 'secret123',
+            'role' => 'company_admin',
+            'status' => User::STATUS_ACTIVE,
+            'email_verified_at' => now(),
+        ]);
+
+        Sanctum::actingAs($admin);
+        $this->postJson('/api/contacts', [
+            'first_name' => 'One',
+            'email' => 'dup-contact@example.com',
+        ])->assertCreated();
+
+        $this->postJson('/api/contacts', [
+            'first_name' => 'Two',
+            'email' => 'dup-contact@example.com',
+        ])->assertStatus(422);
+    }
+
+    public function test_company_email_must_be_unique_per_tenant(): void
+    {
+        $tenant = Tenant::query()->create(['name' => 'Tenant A', 'status' => Tenant::STATUS_ACTIVE]);
+        $admin = User::query()->create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Company Admin',
+            'email' => 'company-admin-unique-company@example.com',
+            'password' => 'secret123',
+            'role' => 'company_admin',
+            'status' => User::STATUS_ACTIVE,
+            'email_verified_at' => now(),
+        ]);
+
+        Sanctum::actingAs($admin);
+        $this->postJson('/api/companies', [
+            'name' => 'One',
+            'email' => 'dup-company@example.com',
+        ])->assertCreated();
+
+        $this->postJson('/api/companies', [
+            'name' => 'Two',
+            'email' => 'dup-company@example.com',
+        ])->assertStatus(422);
     }
 }

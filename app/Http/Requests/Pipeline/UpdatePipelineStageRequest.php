@@ -1,0 +1,24 @@
+<?php
+
+namespace App\Http\Requests\Pipeline;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class UpdatePipelineStageRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        $user = $this->user();
+
+        return (bool) ($user?->isCompanyAdmin() || $user?->isGlobalAdmin());
+    }
+
+    public function rules(): array
+    {
+        return [
+            'name' => ['sometimes', 'string', 'max:255'],
+            'stage_order' => ['nullable', 'integer', 'min:1'],
+            'status' => ['nullable', 'integer', 'in:0,1'],
+        ];
+    }
+}

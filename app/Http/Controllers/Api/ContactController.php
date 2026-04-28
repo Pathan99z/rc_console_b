@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Contact\AddContactActivityRequest;
+use App\Http\Requests\Contact\AttachCompanyRequest;
 use App\Http\Requests\Contact\CreateContactRequest;
 use App\Http\Requests\Contact\ImportContactsRequest;
 use App\Http\Requests\Contact\ListContactsRequest;
@@ -76,6 +77,24 @@ class ContactController extends Controller
         $contact = $this->service->addActivity($request->user(), $contactId, $request->validated());
 
         return $this->successResponse(DomainConstants::MSG_ACTIVITY_ADDED, ['contact' => new ContactResource($contact)]);
+    }
+
+    public function attachCompany(AttachCompanyRequest $request, int $contactId): JsonResponse
+    {
+        $contact = $this->service->attachCompany(
+            $request->user(),
+            $contactId,
+            (int) $request->validated('company_id')
+        );
+
+        return $this->successResponse(DomainConstants::MSG_CONTACT_COMPANY_ATTACHED, ['contact' => new ContactResource($contact)]);
+    }
+
+    public function detachCompany(Request $request, int $contactId): JsonResponse
+    {
+        $contact = $this->service->detachCompany($request->user(), $contactId);
+
+        return $this->successResponse(DomainConstants::MSG_CONTACT_COMPANY_DETACHED, ['contact' => new ContactResource($contact)]);
     }
 
     public function import(ImportContactsRequest $request): JsonResponse

@@ -16,7 +16,21 @@ class Company extends Model
 
     protected $fillable = [
         'tenant_id',
+        'created_by_user_id',
+        'assigned_user_id',
         'name',
+        'industry',
+        'company_type',
+        'employees',
+        'revenue',
+        'timezone',
+        'linkedin_url',
+        'address',
+        'city',
+        'state',
+        'postal_code',
+        'country',
+        'description',
         'email',
         'phone',
         'website',
@@ -27,6 +41,8 @@ class Company extends Model
     {
         return [
             'status' => 'integer',
+            'employees' => 'integer',
+            'revenue' => 'decimal:2',
         ];
     }
 
@@ -38,6 +54,16 @@ class Company extends Model
     public function contacts(): HasMany
     {
         return $this->hasMany(Contact::class);
+    }
+
+    public function createdByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+
+    public function assignedUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_user_id');
     }
 
     public function statusLabel(): string
