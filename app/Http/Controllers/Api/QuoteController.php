@@ -7,12 +7,14 @@ use App\Http\Requests\Quote\CreateQuoteRequest;
 use App\Http\Requests\Quote\ListQuotesRequest;
 use App\Http\Requests\Quote\PreviewQuotePricesRequest;
 use App\Http\Requests\Quote\SendQuoteRequest;
+use App\Http\Requests\Quote\SendQuotePaymentLinkRequest;
 use App\Http\Requests\Quote\UpdateQuoteRequest;
 use App\Http\Requests\Quote\UpdateQuoteStatusRequest;
 use App\Http\Requests\Quote\UploadQuoteAttachmentRequest;
 use App\Http\Resources\QuoteAttachmentResource;
 use App\Http\Resources\QuoteResource;
 use App\Http\Responses\ApiResponse;
+use App\Services\Payment\QuotePaymentLinkService;
 use App\Services\Quote\QuoteService;
 use App\Support\DomainConstants;
 use Illuminate\Http\JsonResponse;
@@ -22,8 +24,10 @@ class QuoteController extends Controller
 {
     use ApiResponse;
 
-    public function __construct(private readonly QuoteService $service)
-    {
+    public function __construct(
+        private readonly QuoteService $service,
+        private readonly QuotePaymentLinkService $quotePaymentLinkService,
+    ) {
     }
 
     public function index(ListQuotesRequest $request): JsonResponse
@@ -107,6 +111,31 @@ class QuoteController extends Controller
         return $this->successResponse(DomainConstants::MSG_QUOTE_SENT, ['quote' => new QuoteResource($quote)]);
     }
 
+    public function sendPaymentLink(SendQuotePaymentLinkRequest $request, int $quoteId): JsonResponse
+    {
+        $link = $this->quotePaymentLinkService->createStoredLink($request->user(), $quoteId);
+        $sent = $this->quotePaymentLinkService->sendStoredLink(
+            $request->user(),
+            $quoteId,
+            (int) $link->id,
+            $request->validated(),
+            $request
+        );
+        $quote = $this->service->getQuote($request->user(), $quoteId);
+
+        return $this->successResponse(DomainConstants::MSG_QUOTE_PAYMENT_LINK_SENT, [
+            'quote' => new QuoteResource($quote),
+            'payment_link' => [
+                'id' => $sent->id,
+                'status' => $sent->status,
+                'recipient_email' => $sent->recipient_email,
+                'expires_at' => $sent->expires_at,
+                'sent_at' => $sent->sent_at,
+                'url' => $this->quotePaymentLinkService->publicPaymentUrl($sent->token),
+            ],
+        ]);
+    }
+
     public function layouts(): JsonResponse
     {
         return $this->successResponse(DomainConstants::MSG_QUOTE_FETCHED, [
@@ -140,5 +169,19 @@ class QuoteController extends Controller
         $quote = $this->service->rejectPublicQuote($token, $request);
 
         return $this->successResponse(DomainConstants::MSG_QUOTE_PUBLIC_REJECTED, ['quote' => new QuoteResource($quote)]);
+    }
+
+    public function createPaymentLink(Request $request, int $quoteId): JsonResponse
+    {
+        $payload = $this->quotePaymentLinkService->createForAuthenticatedUser($request->user(), $quoteId);
+
+        return $this->successResponse(DomainConstants::MSG_PAYFAST_LINK_CREATED, $payload);
+    }
+
+    public function createPublicPaymentLink(string $token): JsonResponse
+    {
+        $payload = $this->quotePaymentLinkService->createForPublicToken($token);
+
+        return $this->successResponse(DomainConstants::MSG_PAYFAST_LINK_CREATED, $payload);
     }
 }

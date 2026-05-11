@@ -39,5 +39,19 @@ class AppServiceProvider extends ServiceProvider
                 Limit::perMinute(6)->by($request->ip()),
             ];
         });
+
+        RateLimiter::for('payfast-itn', function (Request $request): array {
+            return [
+                Limit::perMinute(180)->by($request->ip()),
+            ];
+        });
+
+        RateLimiter::for('payfast-public-link', function (Request $request): array {
+            $token = (string) $request->route('token', '');
+
+            return [
+                Limit::perMinute(20)->by($request->ip().'|'.$token),
+            ];
+        });
     }
 }

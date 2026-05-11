@@ -17,6 +17,10 @@ class Quote extends Model
     public const STATUS_ACCEPTED = 2;
     public const STATUS_REJECTED = 3;
 
+    public const PAYMENT_STATUS_UNPAID = 0;
+
+    public const PAYMENT_STATUS_PAID = 1;
+
     protected $fillable = [
         'tenant_id',
         'deal_id',
@@ -26,6 +30,7 @@ class Quote extends Model
         'quote_number',
         'public_uuid',
         'status',
+        'payment_status',
         'quote_type',
         'notes',
         'valid_until',
@@ -42,6 +47,7 @@ class Quote extends Model
     {
         return [
             'status' => 'integer',
+            'payment_status' => 'integer',
             'quote_type' => 'integer',
             'valid_until' => 'date',
             'subtotal' => 'decimal:2',
@@ -82,6 +88,11 @@ class Quote extends Model
         return $this->hasMany(QuoteAttachment::class)->orderByDesc('id');
     }
 
+    public function paymentLinks(): HasMany
+    {
+        return $this->hasMany(QuotePaymentLink::class)->orderByDesc('id');
+    }
+
     public function statusLabel(): string
     {
         return match ((int) $this->status) {
@@ -90,6 +101,11 @@ class Quote extends Model
             self::STATUS_REJECTED => 'rejected',
             default => 'draft',
         };
+    }
+
+    public function paymentStatusLabel(): string
+    {
+        return (int) $this->payment_status === self::PAYMENT_STATUS_PAID ? 'paid' : 'unpaid';
     }
 
     public static function statusCodeFromString(string $status): int

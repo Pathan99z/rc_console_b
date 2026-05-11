@@ -61,6 +61,16 @@ class ContactManagementService
         return $this->companyRepository->findById($updated->id) ?? $updated;
     }
 
+    public function getCompany(User $actor, int $companyId): Company
+    {
+        $company = $this->companyRepository->findById($companyId);
+        if (! $company || ! $this->canAccessCompany($actor, (int) $company->tenant_id)) {
+            throw new ModelNotFoundException(DomainConstants::MSG_COMPANY_NOT_FOUND);
+        }
+
+        return $company;
+    }
+
     public function deleteCompany(User $actor, int $companyId): void
     {
         $company = $this->companyRepository->findById($companyId);

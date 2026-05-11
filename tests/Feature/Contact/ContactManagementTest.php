@@ -303,4 +303,62 @@ CSV;
             'email' => 'dup-company@example.com',
         ])->assertStatus(422);
     }
+
+    public function test_company_admin_can_fetch_single_company_detail(): void
+    {
+        $tenant = Tenant::query()->create(['name' => 'Tenant A', 'status' => Tenant::STATUS_ACTIVE]);
+        $admin = User::query()->create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Company Admin',
+            'email' => 'company-admin-show@example.com',
+            'password' => 'secret123',
+            'role' => 'company_admin',
+            'status' => User::STATUS_ACTIVE,
+            'email_verified_at' => now(),
+        ]);
+
+        Sanctum::actingAs($admin);
+        $companyId = (int) $this->postJson('/api/companies', [
+            'name' => 'Detail Company',
+            'email' => 'detail-company@example.com',
+        ])->assertCreated()->json('data.company.id');
+
+        $this->getJson("/api/companies/{$companyId}")
+            ->assertOk()
+            ->assertJsonPath('data.company.id', $companyId)
+            ->assertJsonPath('data.company.name', 'Detail Company');
+    }
+
+    public function test_company_detail_is_tenant_isolated(): void
+    {
+        $tenantA = Tenant::query()->create(['name' => 'Tenant A', 'status' => Tenant::STATUS_ACTIVE]);
+        $tenantB = Tenant::query()->create(['name' => 'Tenant B', 'status' => Tenant::STATUS_ACTIVE]);
+
+        $adminA = User::query()->create([
+            'tenant_id' => $tenantA->id,
+            'name' => 'Admin A',
+            'email' => 'admin-a-show@example.com',
+            'password' => 'secret123',
+            'role' => 'company_admin',
+            'status' => User::STATUS_ACTIVE,
+            'email_verified_at' => now(),
+        ]);
+        $adminB = User::query()->create([
+            'tenant_id' => $tenantB->id,
+            'name' => 'Admin B',
+            'email' => 'admin-b-show@example.com',
+            'password' => 'secret123',
+            'role' => 'company_admin',
+            'status' => User::STATUS_ACTIVE,
+            'email_verified_at' => now(),
+        ]);
+
+        Sanctum::actingAs($adminA);
+        $companyId = (int) $this->postJson('/api/companies', [
+            'name' => 'Tenant A Company',
+        ])->assertCreated()->json('data.company.id');
+
+        Sanctum::actingAs($adminB);
+        $this->getJson("/api/companies/{$companyId}")->assertStatus(404);
+    }
 }

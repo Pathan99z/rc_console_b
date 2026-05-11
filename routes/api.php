@@ -5,9 +5,13 @@ use App\Http\Controllers\Api\CompanyController;
 use App\Http\Controllers\Api\CollateralController;
 use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\DealController;
+use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\PipelineController;
 use App\Http\Controllers\Api\PipelineStageController;
 use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\PayFastWebhookController;
+use App\Http\Controllers\Api\PaymentSettingsController;
+use App\Http\Controllers\Api\QuotePaymentLinkController;
 use App\Http\Controllers\Api\QuoteController;
 use App\Http\Controllers\Api\TenantController;
 use App\Http\Controllers\Api\TeamController;
@@ -31,6 +35,11 @@ Route::get('/email/verify/{id}/{hash}', [AuthController::class, 'verifyEmail'])
 Route::get('/quotes/public/{token}', [QuoteController::class, 'publicShow']);
 Route::post('/quotes/public/{token}/accept', [QuoteController::class, 'publicAccept']);
 Route::post('/quotes/public/{token}/reject', [QuoteController::class, 'publicReject']);
+Route::post('/quotes/public/{token}/payment-link', [QuoteController::class, 'createPublicPaymentLink'])
+    ->middleware('throttle:payfast-public-link');
+
+Route::post('/payments/webhook/payfast', [PayFastWebhookController::class, 'handle'])
+    ->middleware('throttle:payfast-itn');
 
 Route::middleware(['auth:sanctum', 'tenant.context'])->group(function (): void {
     Route::post('/email/verification-notification', [AuthController::class, 'resendVerification'])
@@ -55,6 +64,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function (): void {
     Route::post('/companies', [CompanyController::class, 'store']);
     Route::get('/companies/export', [CompanyController::class, 'export']);
     Route::post('/companies/import', [CompanyController::class, 'import']);
+    Route::get('/companies/{companyId}', [CompanyController::class, 'show']);
     Route::put('/companies/{companyId}', [CompanyController::class, 'update']);
     Route::delete('/companies/{companyId}', [CompanyController::class, 'destroy']);
 
@@ -85,6 +95,8 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function (): void {
     Route::delete('/deals/{dealId}', [DealController::class, 'destroy']);
     Route::post('/deals/{dealId}/move-stage', [DealController::class, 'moveStage']);
     Route::patch('/deals/{dealId}/status', [DealController::class, 'updateStatus']);
+    Route::get('/invoices', [InvoiceController::class, 'index']);
+    Route::get('/invoices/{invoiceId}', [InvoiceController::class, 'show']);
 
     Route::get('/products', [ProductController::class, 'index']);
     Route::post('/products', [ProductController::class, 'store']);
@@ -109,4 +121,12 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function (): void {
     Route::patch('/quotes/{quoteId}/status', [QuoteController::class, 'updateStatus']);
     Route::post('/quotes/{quoteId}/attachments', [QuoteController::class, 'uploadAttachment']);
     Route::post('/quotes/{quoteId}/send', [QuoteController::class, 'send']);
+    Route::post('/quotes/{quoteId}/send-payment-link', [QuoteController::class, 'sendPaymentLink']);
+    Route::post('/quotes/{quoteId}/payment-link', [QuoteController::class, 'createPaymentLink']);
+    Route::post('/quotes/{quoteId}/payment-links', [QuotePaymentLinkController::class, 'store']);
+    Route::post('/quotes/{quoteId}/payment-links/{linkId}/send', [QuotePaymentLinkController::class, 'send']);
+
+    Route::get('/settings/payment', [PaymentSettingsController::class, 'show']);
+    Route::post('/settings/payment', [PaymentSettingsController::class, 'store']);
+    Route::put('/settings/payment', [PaymentSettingsController::class, 'update']);
 });

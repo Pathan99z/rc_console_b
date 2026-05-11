@@ -3,6 +3,7 @@
 namespace App\Services\Quote;
 
 use App\Mail\QuoteSharedMail;
+use App\Mail\QuotePaymentLinkMail;
 use Barryvdh\DomPDF\Facade\Pdf;
 use App\Models\Contact;
 use App\Models\Deal;
@@ -220,6 +221,41 @@ class QuoteService
         return $this->mustGetQuote($updated->id);
     }
 
+    public function sendQuotePaymentLink(User $actor, int $quoteId, array $payload, Request $request): Quote
+    {
+        $quote = $this->getQuote($actor, $quoteId);
+        $recipientEmail = $this->resolveQuoteRecipientEmail($quote, $payload);
+        $publicBaseUrl = rtrim((string) config('app.url'), '/');
+        $token = (string) $quote->public_uuid;
+        $viewUrl = "{$publicBaseUrl}/quotes/public/{$token}";
+        $paymentUrl = "{$publicBaseUrl}/quotes/public/{$token}?action=pay";
+
+        Mail::to($recipientEmail)->send(new QuotePaymentLinkMail(
+            quoteNumber: (string) $quote->quote_number,
+            customerName: trim((string) (($quote->contact?->first_name ?? '').' '.($quote->contact?->last_name ?? ''))),
+            total: (string) $quote->total,
+            currencyCode: $quote->currency_code,
+            paymentUrl: $paymentUrl,
+            viewUrl: $viewUrl,
+            messageText: $payload['message'] ?? null,
+        ));
+
+        $before = $quote->toArray();
+        $updated = $this->quoteRepository->update($quote, [
+            'status' => in_array((int) $quote->status, [Quote::STATUS_DRAFT, Quote::STATUS_SENT], true) ? Quote::STATUS_SENT : $quote->status,
+            'updated_by_user_id' => $actor->id,
+            'last_sent_at' => now(),
+        ]);
+        $this->recordAudit($actor, $request, 'payment_link_sent', $updated, $before, array_merge($updated->toArray(), [
+            'recipient_email' => $recipientEmail,
+            'payment_url' => $paymentUrl,
+        ]));
+        Log::info(DomainConstants::LOG_QUOTE_PAYMENT_LINK_SENT, ['tenant_id' => $updated->tenant_id, 'quote_id' => $updated->id]);
+        $this->bumpVersion((int) $updated->tenant_id);
+
+        return $this->mustGetQuote($updated->id);
+    }
+
     public function getPublicQuote(string $token, Request $request): Quote
     {
         $quote = $this->mustGetQuoteByPublicToken($token);
@@ -237,6 +273,34 @@ class QuoteService
     public function rejectPublicQuote(string $token, Request $request): Quote
     {
         return $this->updatePublicQuoteResponse($token, Quote::STATUS_REJECTED, $request);
+    }
+
+    public function getQuoteByPublicTokenForPayment(string $token): Quote
+    {
+        return $this->mustGetQuoteByPublicToken($token);
+    }
+
+    public function applySuccessfulPayment(int $quoteId, ?Request $request = null): void
+    {
+        $quote = $this->mustGetQuote($quoteId);
+        if ((int) $quote->payment_status === Quote::PAYMENT_STATUS_PAID) {
+            return;
+        }
+
+        $this->quoteRepository->update($quote, ['payment_status' => Quote::PAYMENT_STATUS_PAID]);
+        $fresh = $this->mustGetQuote($quoteId);
+        $deal = $fresh->deal;
+        if ($deal) {
+            $this->syncDealFromQuote($deal, $fresh, true);
+        }
+        if ($request) {
+            $this->recordPublicAudit($request, 'payment_succeeded', $fresh, null, ['gateway' => 'payfast']);
+        }
+        Log::info(DomainConstants::LOG_PAYFAST_PAYMENT_APPLIED, [
+            'tenant_id' => $fresh->tenant_id,
+            'quote_id' => $fresh->id,
+        ]);
+        $this->bumpVersion((int) $fresh->tenant_id);
     }
 
     public function listLayouts(): array

@@ -49,6 +49,13 @@ class CompanyController extends Controller
         return $this->successResponse(DomainConstants::MSG_COMPANY_CREATED, ['company' => new CompanyResource($company)], 201);
     }
 
+    public function show(Request $request, int $companyId): JsonResponse
+    {
+        $company = $this->service->getCompany($request->user(), $companyId);
+
+        return $this->successResponse(DomainConstants::MSG_COMPANY_FETCHED, ['company' => new CompanyResource($company)]);
+    }
+
     public function update(UpdateCompanyRequest $request, int $companyId): JsonResponse
     {
         $company = $this->service->updateCompany($request->user(), $companyId, $request->validated());

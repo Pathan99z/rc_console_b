@@ -16,6 +16,7 @@ class QuoteResource extends JsonResource
             'quote_number' => $this->quote_number,
             'public_uuid' => $this->public_uuid,
             'status' => $this->statusLabel(),
+            'payment_status' => $this->paymentStatusLabel(),
             'quote_type' => $this->quote_type,
             'notes' => $this->notes,
             'valid_until' => $this->valid_until,

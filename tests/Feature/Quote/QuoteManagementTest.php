@@ -3,6 +3,7 @@
 namespace Tests\Feature\Quote;
 
 use App\Mail\QuoteSharedMail;
+use App\Mail\QuotePaymentLinkMail;
 use App\Models\Deal;
 use App\Models\Product;
 use App\Models\Tenant;
@@ -174,6 +175,75 @@ class QuoteManagementTest extends TestCase
 
         Mail::assertSent(QuoteSharedMail::class, function (QuoteSharedMail $mail): bool {
             return $mail->hasTo('quote-mail@example.com') && count($mail->attachments()) === 1;
+        });
+    }
+
+    public function test_quote_send_payment_link_endpoint_sends_payment_email(): void
+    {
+        [$tenant, $admin] = $this->createContext();
+        Sanctum::actingAs($admin);
+        Mail::fake();
+
+        $contactId = (int) $this->postJson('/api/contacts', ['first_name' => 'Pay', 'email' => 'quote-pay@example.com'])
+            ->assertCreated()->json('data.contact.id');
+        $pipelineId = (int) $this->postJson('/api/pipelines', ['name' => 'Sales'])->assertCreated()->json('data.pipeline.id');
+        $this->postJson("/api/pipelines/{$pipelineId}/stages", ['name' => 'Lead', 'stage_order' => 1])->assertCreated();
+        $product = Product::query()->create([
+            'tenant_id' => $tenant->id,
+            'created_by_user_id' => $admin->id,
+            'name' => 'Pay Product',
+            'unit_price' => 250,
+            'status' => Product::STATUS_ACTIVE,
+        ]);
+        $quoteId = (int) $this->postJson('/api/quotes', [
+            'contact_id' => $contactId,
+            'products' => [['product_id' => $product->id, 'quantity' => 1]],
+        ])->assertCreated()->json('data.quote.id');
+
+        $this->postJson("/api/quotes/{$quoteId}/send-payment-link", [
+            'message' => 'Please use this secure payment link.',
+        ])->assertOk()->assertJsonPath('data.quote.status', 'sent');
+
+        Mail::assertSent(QuotePaymentLinkMail::class, function (QuotePaymentLinkMail $mail): bool {
+            return $mail->hasTo('quote-pay@example.com') && str_contains($mail->paymentUrl, '/payments/link/');
+        });
+    }
+
+    public function test_quote_payment_link_create_then_send_flow_works(): void
+    {
+        [$tenant, $admin] = $this->createContext();
+        Sanctum::actingAs($admin);
+        Mail::fake();
+
+        $contactId = (int) $this->postJson('/api/contacts', ['first_name' => 'Token', 'email' => 'quote-token@example.com'])
+            ->assertCreated()->json('data.contact.id');
+        $pipelineId = (int) $this->postJson('/api/pipelines', ['name' => 'Sales'])->assertCreated()->json('data.pipeline.id');
+        $this->postJson("/api/pipelines/{$pipelineId}/stages", ['name' => 'Lead', 'stage_order' => 1])->assertCreated();
+        $product = Product::query()->create([
+            'tenant_id' => $tenant->id,
+            'created_by_user_id' => $admin->id,
+            'name' => 'Pay Token Product',
+            'unit_price' => 250,
+            'status' => Product::STATUS_ACTIVE,
+        ]);
+        $quoteId = (int) $this->postJson('/api/quotes', [
+            'contact_id' => $contactId,
+            'products' => [['product_id' => $product->id, 'quantity' => 1]],
+        ])->assertCreated()->json('data.quote.id');
+
+        $createResponse = $this->postJson("/api/quotes/{$quoteId}/payment-links", [])
+            ->assertCreated()
+            ->assertJsonPath('data.payment_link.status', 'created');
+        $linkId = (int) $createResponse->json('data.payment_link.id');
+        $this->assertNotEmpty($createResponse->json('data.payment_link.url'));
+
+        $this->postJson("/api/quotes/{$quoteId}/payment-links/{$linkId}/send", [
+            'message' => 'Secure payment link generated for you.',
+        ])->assertOk()
+            ->assertJsonPath('data.payment_link.status', 'sent');
+
+        Mail::assertSent(QuotePaymentLinkMail::class, function (QuotePaymentLinkMail $mail): bool {
+            return $mail->hasTo('quote-token@example.com') && str_contains($mail->paymentUrl, '/payments/link/');
         });
     }
 

@@ -86,6 +86,10 @@ class DomainConstants
     public const MSG_QUOTE_PUBLIC_ACCEPTED = 'Quote accepted successfully.';
     public const MSG_QUOTE_PUBLIC_REJECTED = 'Quote rejected successfully.';
     public const MSG_QUOTE_SENT = 'Quote sent successfully.';
+    public const MSG_QUOTE_PAYMENT_LINK_SENT = 'Quote payment link sent successfully.';
+    public const MSG_QUOTE_PAYMENT_LINK_CREATED = 'Quote payment link created successfully.';
+    public const MSG_QUOTE_PAYMENT_LINK_INVALID = 'Invalid or expired payment link.';
+    public const MSG_QUOTE_PAYMENT_LINK_EXPIRED = 'This payment link has expired.';
     public const MSG_QUOTE_CONTACT_EMAIL_REQUIRED = 'Contact does not have a valid email for quote sending.';
     public const MSG_QUOTE_PRICE_PREVIEWED = 'Quote prices previewed successfully.';
 
@@ -117,5 +121,25 @@ class DomainConstants
     public const LOG_QUOTE_PUBLIC_VIEWED = 'quote.public.viewed';
     public const LOG_QUOTE_PUBLIC_RESPONDED = 'quote.public.responded';
     public const LOG_QUOTE_SENT = 'quote.sent';
+    public const LOG_QUOTE_PAYMENT_LINK_CREATED = 'quote.payment_link.created';
+    public const LOG_QUOTE_PAYMENT_LINK_SENT = 'quote.payment_link.sent';
     public const LOG_QUOTE_PRICE_PREVIEWED = 'quote.price.previewed';
+
+    public const MSG_PAYMENT_SETTINGS_SAVED = 'Payment settings saved successfully.';
+    public const MSG_PAYMENT_SETTINGS_FETCHED = 'Payment settings fetched successfully.';
+    public const MSG_PAYMENT_SETTINGS_FORBIDDEN = 'You are not allowed to manage payment settings.';
+    public const MSG_INVOICE_FETCHED = 'Invoices fetched successfully.';
+    public const MSG_PAYFAST_CREDENTIALS_INCOMPLETE = 'PayFast is not configured for this tenant.';
+    public const MSG_PAYFAST_CONTACT_EMAIL_REQUIRED = 'Contact email is required to start payment.';
+    public const MSG_PAYFAST_QUOTE_ALREADY_PAID = 'This quote is already marked as paid.';
+    public const MSG_PAYFAST_QUOTE_NOT_PAYABLE = 'Quote must be sent or accepted before payment.';
+    public const MSG_PAYFAST_QUOTE_AMOUNT_INVALID = 'Quote total must be greater than zero for payment.';
+    public const MSG_PAYFAST_LINK_CREATED = 'PayFast payment session created successfully.';
+
+    public const LOG_PAYFAST_LINK_GENERATED = 'payfast.link.generated';
+    public const LOG_PAYFAST_ITN_RECEIVED = 'payfast.itn.received';
+    public const LOG_PAYFAST_ITN_REJECTED = 'payfast.itn.rejected';
+    public const LOG_PAYFAST_PAYMENT_APPLIED = 'payfast.payment.applied';
+    public const LOG_INVOICE_CREATED = 'invoice.created';
+    public const LOG_PAYMENT_SETTINGS_SAVED = 'payment.settings.saved';
 }
