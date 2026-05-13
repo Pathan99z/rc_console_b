@@ -21,12 +21,15 @@ class Collateral extends Model
         'file_key',
         'file_type',
         'file_size',
+        'partner_visible',
+        'resource_category',
     ];
 
     protected function casts(): array
     {
         return [
             'file_size' => 'integer',
+            'partner_visible' => 'boolean',
         ];
     }
 

@@ -1,5 +1,8 @@
 <?php
 
+use App\Http\Middleware\EnsurePartnerPortalAccess;
+use App\Http\Middleware\EnsurePrmProgramsManage;
+use App\Http\Middleware\EnsureTenantContext;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -19,11 +22,13 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
-            'tenant.context' => \App\Http\Middleware\EnsureTenantContext::class,
+            'tenant.context' => EnsureTenantContext::class,
+            'partner.portal' => EnsurePartnerPortalAccess::class,
+            'prm.programs.manage' => EnsurePrmProgramsManage::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        $exceptions->render(function (\Throwable $e, Request $request) {
+        $exceptions->render(function (Throwable $e, Request $request) {
             if (! $request->is('api/*')) {
                 return null;
             }

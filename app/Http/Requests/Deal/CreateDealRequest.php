@@ -27,6 +27,8 @@ class CreateDealRequest extends FormRequest
             'status' => ['nullable', 'in:open,won,lost'],
             'meta' => ['nullable', 'array'],
             'tenant_id' => ['nullable', 'integer', 'exists:tenants,id'],
+            'partner_organization_id' => ['nullable', 'integer', 'exists:organizations,id'],
+            'partner_opportunity_fingerprint' => ['nullable', 'string', 'max:64'],
         ];
     }
 }

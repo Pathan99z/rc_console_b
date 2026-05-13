@@ -1,20 +1,31 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
-use App\Http\Controllers\Api\CompanyController;
 use App\Http\Controllers\Api\CollateralController;
+use App\Http\Controllers\Api\CompanyController;
 use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\DealController;
 use App\Http\Controllers\Api\InvoiceController;
-use App\Http\Controllers\Api\PipelineController;
-use App\Http\Controllers\Api\PipelineStageController;
-use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\NavigationController;
+use App\Http\Controllers\Api\OrganizationController;
 use App\Http\Controllers\Api\PayFastWebhookController;
 use App\Http\Controllers\Api\PaymentSettingsController;
-use App\Http\Controllers\Api\QuotePaymentLinkController;
+use App\Http\Controllers\Api\PipelineController;
+use App\Http\Controllers\Api\PipelineStageController;
+use App\Http\Controllers\Api\Prm\CommissionAccrualController;
+use App\Http\Controllers\Api\Prm\LicenseEntitlementController;
+use App\Http\Controllers\Api\Prm\OrganizationInvitationAdminController;
+use App\Http\Controllers\Api\Prm\PartnerLeadController;
+use App\Http\Controllers\Api\Prm\PartnerOpportunityController;
+use App\Http\Controllers\Api\Prm\PartnerPortalShellController;
+use App\Http\Controllers\Api\Prm\PartnerProgramController;
+use App\Http\Controllers\Api\Prm\PublicOrganizationInvitationController;
+use App\Http\Controllers\Api\Prm\ResourceCenterController;
+use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\QuoteController;
-use App\Http\Controllers\Api\TenantController;
+use App\Http\Controllers\Api\QuotePaymentLinkController;
 use App\Http\Controllers\Api\TeamController;
+use App\Http\Controllers\Api\TenantController;
 use App\Http\Controllers\Api\UserManagementController;
 use Illuminate\Support\Facades\Route;
 
@@ -41,17 +52,70 @@ Route::post('/quotes/public/{token}/payment-link', [QuoteController::class, 'cre
 Route::post('/payments/webhook/payfast', [PayFastWebhookController::class, 'handle'])
     ->middleware('throttle:payfast-itn');
 
+Route::middleware(['throttle:partner-invite-preview'])->group(function (): void {
+    Route::get('/prm/invitations/preview', [PublicOrganizationInvitationController::class, 'preview']);
+});
+
+Route::middleware(['throttle:partner-invite-accept'])->group(function (): void {
+    Route::post('/prm/invitations/accept', [PublicOrganizationInvitationController::class, 'accept']);
+});
+
 Route::middleware(['auth:sanctum', 'tenant.context'])->group(function (): void {
     Route::post('/email/verification-notification', [AuthController::class, 'resendVerification'])
         ->middleware('throttle:verify-email')
         ->name('verification.send');
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'user']);
+    Route::get('/navigation', [NavigationController::class, 'index']);
 
     Route::get('/users', [UserManagementController::class, 'index']);
     Route::post('/users', [UserManagementController::class, 'store']);
     Route::patch('/users/{userId}/status', [UserManagementController::class, 'updateStatus']);
     Route::patch('/users/{userId}/role', [UserManagementController::class, 'updateRole']);
+
+    Route::get('/organizations', [OrganizationController::class, 'index']);
+    Route::get('/organizations/parent-options', [OrganizationController::class, 'parentOptions']);
+    Route::post('/organizations', [OrganizationController::class, 'store']);
+    Route::get('/organizations/{organizationId}', [OrganizationController::class, 'show']);
+    Route::put('/organizations/{organizationId}', [OrganizationController::class, 'update']);
+    Route::patch('/organizations/{organizationId}/status', [OrganizationController::class, 'updateStatus']);
+    Route::post('/organizations/{organizationId}/approve', [OrganizationController::class, 'approve']);
+    Route::post('/organizations/{organizationId}/reject', [OrganizationController::class, 'reject']);
+    Route::post('/organizations/{organizationId}/suspend', [OrganizationController::class, 'suspend']);
+
+    Route::get('/organizations/{organizationId}/invitations', [OrganizationInvitationAdminController::class, 'index']);
+    Route::post('/organizations/{organizationId}/invitations', [OrganizationInvitationAdminController::class, 'store']);
+    Route::post('/organizations/{organizationId}/invitations/{invitationId}/resend', [OrganizationInvitationAdminController::class, 'resend']);
+    Route::delete('/organizations/{organizationId}/invitations/{invitationId}', [OrganizationInvitationAdminController::class, 'destroy']);
+
+    Route::prefix('prm')->group(function (): void {
+        Route::middleware('prm.programs.manage')->group(function (): void {
+            Route::get('/programs', [PartnerProgramController::class, 'index']);
+            Route::post('/programs', [PartnerProgramController::class, 'store']);
+            Route::get('/programs/{programId}', [PartnerProgramController::class, 'show'])->whereNumber('programId');
+            Route::put('/programs/{programId}', [PartnerProgramController::class, 'update'])->whereNumber('programId');
+            Route::patch('/programs/{programId}/status', [PartnerProgramController::class, 'updateStatus'])->whereNumber('programId');
+        });
+        Route::post('/programs/enroll', [PartnerProgramController::class, 'enroll']);
+        Route::get('/organizations/{organizationId}/program-enrollments', [PartnerProgramController::class, 'enrollments']);
+        Route::get('/commission-accruals', [CommissionAccrualController::class, 'index']);
+        Route::patch('/commission-accruals/{accrualId}/status', [CommissionAccrualController::class, 'updateStatus']);
+        Route::get('/license-entitlements', [LicenseEntitlementController::class, 'index']);
+        Route::post('/license-entitlements', [LicenseEntitlementController::class, 'store']);
+        Route::post('/license-entitlements/{entitlementId}/consume', [LicenseEntitlementController::class, 'consume']);
+    });
+
+    Route::middleware(['partner.portal'])->prefix('prm/partner')->group(function (): void {
+        Route::get('/program-enrollments', [PartnerProgramController::class, 'partnerEnrollments']);
+        Route::get('/navigation', [PartnerPortalShellController::class, 'navigation']);
+        Route::get('/dashboard', [PartnerPortalShellController::class, 'dashboard']);
+        Route::get('/leads', [PartnerLeadController::class, 'index']);
+        Route::post('/leads', [PartnerLeadController::class, 'store']);
+        Route::put('/leads/{leadId}', [PartnerLeadController::class, 'update']);
+        Route::post('/opportunities', [PartnerOpportunityController::class, 'store']);
+        Route::get('/resources/collaterals', [ResourceCenterController::class, 'index']);
+        Route::post('/resources/collaterals/{collateralId}/downloads', [ResourceCenterController::class, 'recordDownload']);
+    });
 
     Route::get('/tenants', [TenantController::class, 'index']);
     Route::patch('/tenants/{tenantId}/status', [TenantController::class, 'updateStatus']);

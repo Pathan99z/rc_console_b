@@ -5,6 +5,7 @@ namespace App\Services\Deal;
 use App\Models\Company;
 use App\Models\Contact;
 use App\Models\Deal;
+use App\Models\Organization;
 use App\Models\Pipeline;
 use App\Models\PipelineStage;
 use App\Models\User;
@@ -13,6 +14,7 @@ use App\Repositories\DealRepository;
 use App\Repositories\PipelineRepository;
 use App\Repositories\PipelineStageRepository;
 use App\Support\DomainConstants;
+use App\Support\PartnerScopeResolver;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Collection;
@@ -27,8 +29,8 @@ class DealManagementService
         private readonly PipelineStageRepository $pipelineStageRepository,
         private readonly DealRepository $dealRepository,
         private readonly DealHistoryRepository $dealHistoryRepository,
-    ) {
-    }
+        private readonly PartnerScopeResolver $partnerScopeResolver,
+    ) {}
 
     public function listPipelines(User $actor, array $filters, int $perPage): LengthAwarePaginator
     {
@@ -136,10 +138,18 @@ class DealManagementService
     public function createDeal(User $actor, array $payload): Deal
     {
         $tenantId = $this->resolveTenantId($actor, $payload);
-        $this->validateDealRelations($tenantId, $payload);
+        $this->validateDealRelations($actor, $tenantId, $payload);
+
+        $partnerOrgId = $payload['partner_organization_id'] ?? null;
+        if ($partnerOrgId === null && $actor->isPartnerPortalEligible()) {
+            $partnerOrgId = $actor->primaryOrganizationId();
+        }
 
         $deal = $this->dealRepository->create([
             'tenant_id' => $tenantId,
+            'partner_organization_id' => $partnerOrgId,
+            'partner_registered_by_user_id' => $partnerOrgId ? $actor->id : null,
+            'partner_opportunity_fingerprint' => $payload['partner_opportunity_fingerprint'] ?? null,
             'contact_id' => (int) $payload['contact_id'],
             'company_id' => $payload['company_id'] ?? null,
             'owner_user_id' => (int) $payload['owner_user_id'],
@@ -178,7 +188,7 @@ class DealManagementService
         $deal = $this->getDeal($actor, $dealId);
         $this->ensureDealMutationAccess($actor, $deal);
         $tenantId = (int) $deal->tenant_id;
-        $this->validateDealRelations($tenantId, $payload, $deal);
+        $this->validateDealRelations($actor, $tenantId, $payload, $deal);
         $updatePayload = array_merge($payload, ['updated_by_user_id' => $actor->id]);
         if (isset($payload['currency_code'])) {
             $updatePayload['currency_code'] = strtoupper((string) $payload['currency_code']);
@@ -249,7 +259,7 @@ class DealManagementService
         return $this->mustGetDeal($updated->id);
     }
 
-    private function validateDealRelations(int $tenantId, array $payload, ?Deal $currentDeal = null): void
+    private function validateDealRelations(User $actor, int $tenantId, array $payload, ?Deal $currentDeal = null): void
     {
         $contactId = isset($payload['contact_id']) ? (int) $payload['contact_id'] : $currentDeal?->contact_id;
         if (! $contactId || ! Contact::query()->where('id', $contactId)->where('tenant_id', $tenantId)->exists()) {
@@ -276,6 +286,34 @@ class DealManagementService
         $stageId = isset($payload['pipeline_stage_id']) ? (int) $payload['pipeline_stage_id'] : $currentDeal?->pipeline_stage_id;
         if (! $stageId || ! PipelineStage::query()->where('id', $stageId)->where('tenant_id', $tenantId)->where('pipeline_id', $pipelineId)->exists()) {
             throw ValidationException::withMessages(['pipeline_stage_id' => [DomainConstants::MSG_PIPELINE_STAGE_NOT_FOUND]]);
+        }
+
+        $this->assertOptionalPartnerOrganization($actor, $tenantId, $payload, $currentDeal);
+    }
+
+    private function assertOptionalPartnerOrganization(User $actor, int $tenantId, array $payload, ?Deal $currentDeal = null): void
+    {
+        $partnerOrgId = isset($payload['partner_organization_id'])
+            ? (int) $payload['partner_organization_id']
+            : (int) ($currentDeal?->partner_organization_id ?? 0);
+        if ($partnerOrgId <= 0) {
+            return;
+        }
+
+        $org = Organization::query()->where('id', $partnerOrgId)->where('tenant_id', $tenantId)->first();
+        if (! $org) {
+            throw ValidationException::withMessages([
+                'partner_organization_id' => ['Invalid partner organization for tenant.'],
+            ]);
+        }
+
+        if ($actor->isPartnerPortalEligible()) {
+            $allowed = $this->partnerScopeResolver->visibleChannelOrganizationIds($actor);
+            if (! in_array($partnerOrgId, $allowed, true)) {
+                throw ValidationException::withMessages([
+                    'partner_organization_id' => [DomainConstants::MSG_UNAUTHORIZED_SCOPE],
+                ]);
+            }
         }
     }
 
@@ -327,7 +365,16 @@ class DealManagementService
             ->pluck('id')
             ->all();
 
-        return in_array((int) $deal->owner_user_id, array_map('intval', $teamUserIds), true);
+        if (in_array((int) $deal->owner_user_id, array_map('intval', $teamUserIds), true)) {
+            return true;
+        }
+
+        $channelIds = $this->partnerScopeResolver->visibleChannelOrganizationIds($actor);
+        if ($deal->partner_organization_id && in_array((int) $deal->partner_organization_id, $channelIds, true)) {
+            return true;
+        }
+
+        return false;
     }
 
     private function mustGetDeal(int $dealId): Deal

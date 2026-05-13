@@ -2,10 +2,11 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Deal;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/** @mixin \App\Models\Deal */
+/** @mixin Deal */
 class DealResource extends JsonResource
 {
     public function toArray(Request $request): array
@@ -13,6 +14,8 @@ class DealResource extends JsonResource
         return [
             'id' => $this->id,
             'tenant_id' => $this->tenant_id,
+            'partner_organization_id' => $this->partner_organization_id,
+            'partner_opportunity_fingerprint' => $this->partner_opportunity_fingerprint,
             'name' => $this->name,
             'estimated_value' => $this->estimated_value,
             'currency_code' => $this->currency_code,

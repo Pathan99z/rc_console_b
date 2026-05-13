@@ -4,12 +4,14 @@ namespace App\Repositories;
 
 use App\Models\Contact;
 use App\Models\User;
-use App\Support\DomainConstants;
+use App\Services\Auth\AccessScopeService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 
 class ContactRepository
 {
+    public function __construct(private readonly AccessScopeService $accessScopeService) {}
+
     public function paginateFiltered(User $actor, array $filters, int $perPage = 15): LengthAwarePaginator
     {
         $query = Contact::query()
@@ -94,21 +96,19 @@ class ContactRepository
             return;
         }
 
-        $query->where(function (Builder $inner) use ($actor): void {
-            $inner->where('created_by_user_id', $actor->id)
-                ->orWhere('assigned_user_id', $actor->id);
+        $channelOrgIds = $this->accessScopeService->visibleChannelOrgIds($actor);
 
-            if ((int) $actor->data_scope === DomainConstants::DATA_SCOPE_TEAM && $actor->team_id !== null) {
-                $teamUserIds = User::query()
-                    ->where('tenant_id', $actor->tenant_id)
-                    ->where('team_id', $actor->team_id)
-                    ->pluck('id')
-                    ->all();
+        $query->where(function (Builder $inner) use ($actor, $channelOrgIds): void {
+            $this->accessScopeService->applyOwnerTeamScope($inner, $actor, 'assigned_user_id', 'created_by_user_id');
 
-                if ($teamUserIds !== []) {
-                    $inner->orWhereIn('assigned_user_id', $teamUserIds)
-                        ->orWhereIn('created_by_user_id', $teamUserIds);
-                }
+            if ($channelOrgIds !== []) {
+                $inner->orWhereIn('id', function ($sub) use ($actor, $channelOrgIds): void {
+                    $sub->from('deals')
+                        ->select('contact_id')
+                        ->where('tenant_id', $actor->tenant_id)
+                        ->whereNotNull('contact_id')
+                        ->whereIn('partner_organization_id', $channelOrgIds);
+                });
             }
         });
     }

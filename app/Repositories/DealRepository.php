@@ -4,12 +4,14 @@ namespace App\Repositories;
 
 use App\Models\Deal;
 use App\Models\User;
-use App\Support\DomainConstants;
+use App\Services\Auth\AccessScopeService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 
 class DealRepository
 {
+    public function __construct(private readonly AccessScopeService $accessScopeService) {}
+
     public function paginateFiltered(User $actor, array $filters, int $perPage = 15): LengthAwarePaginator
     {
         $query = Deal::query()
@@ -66,21 +68,13 @@ class DealRepository
             return;
         }
 
-        $query->where(function (Builder $inner) use ($actor): void {
-            $inner->where('owner_user_id', $actor->id);
+        $channelOrgIds = $this->accessScopeService->visibleChannelOrgIds($actor);
 
-            if ((int) $actor->data_scope !== DomainConstants::DATA_SCOPE_TEAM || $actor->team_id === null) {
-                return;
-            }
+        $query->where(function (Builder $inner) use ($actor, $channelOrgIds): void {
+            $this->accessScopeService->applyOwnerTeamScope($inner, $actor, 'owner_user_id');
 
-            $teamUserIds = User::query()
-                ->where('tenant_id', $actor->tenant_id)
-                ->where('team_id', $actor->team_id)
-                ->pluck('id')
-                ->all();
-
-            if ($teamUserIds !== []) {
-                $inner->orWhereIn('owner_user_id', $teamUserIds);
+            if ($channelOrgIds !== []) {
+                $inner->orWhereIn('partner_organization_id', $channelOrgIds);
             }
         });
     }

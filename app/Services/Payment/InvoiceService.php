@@ -12,9 +12,7 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 class InvoiceService
 {
-    public function __construct(private readonly InvoiceRepository $invoiceRepository)
-    {
-    }
+    public function __construct(private readonly InvoiceRepository $invoiceRepository) {}
 
     public function createForSuccessfulPayment(Quote $quote, PaymentRecord $paymentRecord): Invoice
     {
@@ -53,12 +51,12 @@ class InvoiceService
 
     public function listInvoices(User $actor, int $perPage = 15): LengthAwarePaginator
     {
-        return $this->invoiceRepository->paginateForTenant((int) $actor->tenant_id, $perPage);
+        return $this->invoiceRepository->paginateForActor($actor, $perPage);
     }
 
     public function getInvoice(User $actor, int $invoiceId): Invoice
     {
-        $invoice = $this->invoiceRepository->findForTenant((int) $actor->tenant_id, $invoiceId);
+        $invoice = $this->invoiceRepository->findForActor($actor, $invoiceId);
         if (! $invoice) {
             throw new ModelNotFoundException('Invoice not found.');
         }

@@ -7,12 +7,14 @@ use App\Models\Quote;
 use App\Models\QuoteAttachment;
 use App\Models\QuoteItem;
 use App\Models\User;
-use App\Support\DomainConstants;
+use App\Services\Auth\AccessScopeService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 
 class QuoteRepository
 {
+    public function __construct(private readonly AccessScopeService $accessScopeService) {}
+
     public function paginateFiltered(User $actor, array $filters, int $perPage = 15): LengthAwarePaginator
     {
         $query = Quote::query()
@@ -97,19 +99,15 @@ class QuoteRepository
             return;
         }
 
-        $query->where(function (Builder $inner) use ($actor): void {
-            $inner->where('created_by_user_id', $actor->id);
-            if ((int) $actor->data_scope !== DomainConstants::DATA_SCOPE_TEAM || $actor->team_id === null) {
-                return;
-            }
+        $channelOrgIds = $this->accessScopeService->visibleChannelOrgIds($actor);
 
-            $teamUserIds = User::query()
-                ->where('tenant_id', $actor->tenant_id)
-                ->where('team_id', $actor->team_id)
-                ->pluck('id')
-                ->all();
-            if ($teamUserIds !== []) {
-                $inner->orWhereIn('created_by_user_id', $teamUserIds);
+        $query->where(function (Builder $inner) use ($actor, $channelOrgIds): void {
+            $this->accessScopeService->applyOwnerTeamScope($inner, $actor, 'created_by_user_id');
+
+            if ($channelOrgIds !== []) {
+                $inner->orWhereHas('deal', function (Builder $dealQ) use ($channelOrgIds): void {
+                    $dealQ->whereIn('partner_organization_id', $channelOrgIds);
+                });
             }
         });
     }

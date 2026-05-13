@@ -4,10 +4,7 @@ namespace Tests\Feature\Product;
 
 use App\Models\Tenant;
 use App\Models\User;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -66,23 +63,23 @@ class ProductManagementTest extends TestCase
         [$tenant, $admin] = $this->createAdminContext();
         Sanctum::actingAs($admin);
 
+        $contactId = (int) $this->postJson('/api/contacts', [
+            'first_name' => 'Buyer',
+            'email' => 'product-quote-del@example.com',
+        ])->assertCreated()->json('data.contact.id');
+        $pipelineId = (int) $this->postJson('/api/pipelines', ['name' => 'Sales'])->assertCreated()->json('data.pipeline.id');
+        $this->postJson("/api/pipelines/{$pipelineId}/stages", ['name' => 'Lead', 'stage_order' => 1])->assertCreated();
+
         $productId = (int) $this->postJson('/api/products', [
             'name' => 'Enterprise Plan',
             'sku' => 'ent-001',
             'unit_price' => 9999,
         ])->assertCreated()->json('data.product.id');
 
-        Schema::create('quote_items', function (Blueprint $table): void {
-            $table->id();
-            $table->unsignedBigInteger('product_id');
-            $table->timestamps();
-        });
-
-        DB::table('quote_items')->insert([
-            'product_id' => $productId,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        $this->postJson('/api/quotes', [
+            'contact_id' => $contactId,
+            'products' => [['product_id' => $productId, 'quantity' => 1]],
+        ])->assertCreated();
 
         $this->deleteJson("/api/products/{$productId}")
             ->assertStatus(422)

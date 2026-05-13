@@ -5,6 +5,7 @@ namespace App\Services\Payment;
 use App\Models\PaymentRecord;
 use App\Models\Quote;
 use App\Repositories\PaymentRecordRepository;
+use App\Services\Prm\CommissionAccrualService;
 use App\Services\Quote\QuoteService;
 use App\Support\DomainConstants;
 use App\Support\Payment\PayFastPaymentStatus;
@@ -20,8 +21,8 @@ class PayFastItnService
         private readonly PayFastService $payFastService,
         private readonly QuoteService $quoteService,
         private readonly InvoiceService $invoiceService,
-    ) {
-    }
+        private readonly CommissionAccrualService $commissionAccrualService,
+    ) {}
 
     public function handle(Request $request): Response
     {
@@ -73,6 +74,8 @@ class PayFastItnService
                         'quote_id' => $quote->id,
                         'invoice_id' => $invoice->id,
                     ]);
+
+                    $this->commissionAccrualService->processSuccessfulPayment($quote, $updatedRecord);
 
                     return $this->ackItn();
                 }

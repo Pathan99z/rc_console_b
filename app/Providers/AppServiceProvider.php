@@ -2,8 +2,13 @@
 
 namespace App\Providers;
 
+use App\Models\Invoice;
+use App\Models\User;
+use App\Policies\InvoicePolicy;
+use App\Services\Auth\PermissionResolverService;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
@@ -22,6 +27,27 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Gate::policy(Invoice::class, InvoicePolicy::class);
+
+        Gate::define('access-prm-partner', function (User $user): bool {
+            return app(PermissionResolverService::class)->canAny($user, [
+                'prm.partner.dashboard.view',
+                'prm.leads.manage',
+                'prm.opportunities.manage',
+                'prm.resources.view',
+            ]);
+        });
+
+        Gate::define('view-navigation', function (User $user): bool {
+            return app(PermissionResolverService::class)->canAny($user, [
+                'contacts.view',
+                'contacts.manage',
+                'deals.view',
+                'deals.manage',
+                'prm.partner.dashboard.view',
+            ]);
+        });
+
         RateLimiter::for('login', function (Request $request): array {
             return [
                 Limit::perMinute(5)->by(strtolower((string) $request->input('email')).'|'.$request->ip()),
@@ -52,6 +78,14 @@ class AppServiceProvider extends ServiceProvider
             return [
                 Limit::perMinute(20)->by($request->ip().'|'.$token),
             ];
+        });
+
+        RateLimiter::for('partner-invite-preview', function (Request $request): array {
+            return [Limit::perMinute(30)->by($request->ip())];
+        });
+
+        RateLimiter::for('partner-invite-accept', function (Request $request): array {
+            return [Limit::perMinute(10)->by($request->ip())];
         });
     }
 }

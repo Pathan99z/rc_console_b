@@ -3,13 +3,14 @@
 namespace App\Models;
 
 use App\Models\Scopes\TenantScope;
-use App\Support\DomainConstants;
 use App\Notifications\Auth\ResetPasswordNotification;
 use App\Notifications\Auth\VerifyEmailNotification;
+use App\Support\DomainConstants;
 use Database\Factories\UserFactory;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -20,7 +21,9 @@ class User extends Authenticatable implements MustVerifyEmail
     use HasApiTokens, HasFactory, Notifiable;
 
     public const STATUS_INACTIVE = 0;
+
     public const STATUS_ACTIVE = 1;
+
     public const STATUS_SUSPENDED = 2;
 
     /**
@@ -68,7 +71,7 @@ class User extends Authenticatable implements MustVerifyEmail
 
     protected static function booted(): void
     {
-        static::addGlobalScope(new TenantScope());
+        static::addGlobalScope(new TenantScope);
 
         static::creating(function (User $user): void {
             $user->role ??= 'user';
@@ -94,6 +97,20 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->belongsTo(Team::class, 'team_id');
     }
 
+    public function organizationAssignment(): HasOne
+    {
+        return $this->hasOne(UserOrganizationAssignment::class);
+    }
+
+    /**
+     * Primary organization (partner / reseller / optional company link) for channel users.
+     * Company admins usually have no assignment; tenant + auto-seeded root company drive partner create.
+     */
+    public function primaryOrganizationId(): ?int
+    {
+        return $this->organizationAssignment?->organization_id;
+    }
+
     public function roleModel(): BelongsTo
     {
         return $this->belongsTo(Role::class, 'role_id');
@@ -101,7 +118,7 @@ class User extends Authenticatable implements MustVerifyEmail
 
     public function sendEmailVerificationNotification(): void
     {
-        $this->notify(new VerifyEmailNotification());
+        $this->notify(new VerifyEmailNotification);
     }
 
     public function sendPasswordResetNotification($token): void
@@ -117,6 +134,33 @@ class User extends Authenticatable implements MustVerifyEmail
     public function isCompanyAdmin(): bool
     {
         return $this->currentRoleCode() === Role::CODE_COMPANY_ADMIN;
+    }
+
+    public function isPartnerAdmin(): bool
+    {
+        return $this->currentRoleCode() === Role::CODE_PARTNER_ADMIN;
+    }
+
+    public function isResellerRole(): bool
+    {
+        return in_array($this->currentRoleCode(), [
+            Role::CODE_RESELLER_ADMIN,
+            Role::CODE_RESELLER_SALES_CONSULTANT,
+        ], true);
+    }
+
+    public function isPartnerChannelUser(): bool
+    {
+        return in_array($this->currentRoleCode(), [
+            Role::CODE_PARTNER_ADMIN,
+            Role::CODE_PARTNER_SALES_MANAGER,
+            Role::CODE_PARTNER_SALES_CONSULTANT,
+        ], true);
+    }
+
+    public function isPartnerPortalEligible(): bool
+    {
+        return $this->isPartnerChannelUser() || $this->isResellerRole();
     }
 
     public function currentRoleCode(): string

@@ -26,6 +26,8 @@ class UpdateDealRequest extends FormRequest
             'expected_close_date' => ['nullable', 'date'],
             'status' => ['nullable', 'in:open,won,lost'],
             'meta' => ['nullable', 'array'],
+            'partner_organization_id' => ['nullable', 'integer', 'exists:organizations,id'],
+            'partner_opportunity_fingerprint' => ['nullable', 'string', 'max:64'],
         ];
     }
 }

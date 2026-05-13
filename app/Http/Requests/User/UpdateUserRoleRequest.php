@@ -14,7 +14,7 @@ class UpdateUserRoleRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'role' => ['required', 'in:user,company_admin'],
+            'role' => ['required', 'in:user,company_admin,partner_admin,partner_sales_manager,partner_sales_consultant,reseller_admin,reseller_sales_consultant'],
         ];
     }
 }

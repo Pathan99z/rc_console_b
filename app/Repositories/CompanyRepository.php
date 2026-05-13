@@ -4,14 +4,17 @@ namespace App\Repositories;
 
 use App\Models\Company;
 use App\Models\User;
+use App\Services\Auth\AccessScopeService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 
 class CompanyRepository
 {
+    public function __construct(private readonly AccessScopeService $accessScopeService) {}
+
     public function paginateFiltered(User $actor, array $filters, int $perPage = 15): LengthAwarePaginator
     {
-        return Company::query()
+        $query = Company::query()
             ->with(['createdByUser', 'assignedUser'])
             ->when(! $actor->isGlobalAdmin(), fn ($q) => $q->where('tenant_id', $actor->tenant_id))
             ->when($actor->isGlobalAdmin() && isset($filters['tenant_id']), fn ($q) => $q->where('tenant_id', (int) $filters['tenant_id']))
@@ -28,8 +31,11 @@ class CompanyRepository
                         ->orWhere('country', 'like', "%{$search}%");
                 });
             })
-            ->orderByDesc('id')
-            ->paginate($perPage);
+            ->orderByDesc('id');
+
+        $this->applyVisibilityScope($query, $actor);
+
+        return $query->paginate($perPage);
     }
 
     public function findById(int $id): ?Company
@@ -53,7 +59,7 @@ class CompanyRepository
 
     public function queryForExport(User $actor, array $filters): Builder
     {
-        return Company::query()
+        $query = Company::query()
             ->with(['createdByUser', 'assignedUser'])
             ->when(! $actor->isGlobalAdmin(), fn (Builder $q) => $q->where('tenant_id', $actor->tenant_id))
             ->when($actor->isGlobalAdmin() && isset($filters['tenant_id']), fn (Builder $q) => $q->where('tenant_id', (int) $filters['tenant_id']))
@@ -70,6 +76,10 @@ class CompanyRepository
                         ->orWhere('country', 'like', "%{$search}%");
                 });
             });
+
+        $this->applyVisibilityScope($query, $actor);
+
+        return $query;
     }
 
     public function emailExistsForTenant(int $tenantId, string $email, ?int $ignoreCompanyId = null): bool
@@ -79,5 +89,28 @@ class CompanyRepository
             ->where('email', strtolower($email))
             ->when($ignoreCompanyId !== null, fn (Builder $q) => $q->where('id', '!=', $ignoreCompanyId))
             ->exists();
+    }
+
+    private function applyVisibilityScope(Builder $query, User $actor): void
+    {
+        if ($actor->isGlobalAdmin() || $actor->isCompanyAdmin()) {
+            return;
+        }
+
+        $channelOrgIds = $this->accessScopeService->visibleChannelOrgIds($actor);
+
+        $query->where(function (Builder $inner) use ($actor, $channelOrgIds): void {
+            $this->accessScopeService->applyOwnerTeamScope($inner, $actor, 'assigned_user_id', 'created_by_user_id');
+
+            if ($channelOrgIds !== []) {
+                $inner->orWhereIn('id', function ($sub) use ($actor, $channelOrgIds): void {
+                    $sub->from('deals')
+                        ->select('company_id')
+                        ->where('tenant_id', $actor->tenant_id)
+                        ->whereNotNull('company_id')
+                        ->whereIn('partner_organization_id', $channelOrgIds);
+                });
+            }
+        });
     }
 }

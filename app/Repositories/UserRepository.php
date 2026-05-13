@@ -25,7 +25,7 @@ class UserRepository
     public function paginateForCurrentScope(int $perPage = 15): LengthAwarePaginator
     {
         return User::query()
-            ->with(['tenant', 'roleModel'])
+            ->with(['tenant', 'roleModel', 'organizationAssignment'])
             ->orderByDesc('id')
             ->paginate($perPage);
     }

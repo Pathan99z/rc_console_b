@@ -13,11 +13,16 @@ class Deal extends Model
     use HasFactory, SoftDeletes;
 
     public const STATUS_OPEN = 0;
+
     public const STATUS_WON = 1;
+
     public const STATUS_LOST = 2;
 
     protected $fillable = [
         'tenant_id',
+        'partner_organization_id',
+        'partner_registered_by_user_id',
+        'partner_opportunity_fingerprint',
         'contact_id',
         'company_id',
         'owner_user_id',
@@ -45,6 +50,16 @@ class Deal extends Model
             'currency_code' => 'string',
             'probability' => 'integer',
         ];
+    }
+
+    public function partnerOrganization(): BelongsTo
+    {
+        return $this->belongsTo(Organization::class, 'partner_organization_id');
+    }
+
+    public function partnerRegisteredByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'partner_registered_by_user_id');
     }
 
     public function contact(): BelongsTo
