@@ -2,6 +2,8 @@
 
 use App\Http\Middleware\EnsurePartnerPortalAccess;
 use App\Http\Middleware\EnsurePrmProgramsManage;
+use App\Http\Middleware\EnsurePrmResourcesManage;
+use App\Http\Middleware\EnsurePrmResourcesView;
 use App\Http\Middleware\EnsureTenantContext;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
@@ -25,6 +27,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'tenant.context' => EnsureTenantContext::class,
             'partner.portal' => EnsurePartnerPortalAccess::class,
             'prm.programs.manage' => EnsurePrmProgramsManage::class,
+            'prm.resources.manage' => EnsurePrmResourcesManage::class,
+            'prm.resources.view' => EnsurePrmResourcesView::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

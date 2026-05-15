@@ -357,4 +357,18 @@ class DomainConstants
     public const MSG_PRM_LICENSE_ALLOCATED = 'License entitlement created successfully.';
 
     public const MSG_PRM_LICENSE_CONSUMED = 'License consumption updated successfully.';
+
+    public const MSG_PRM_RESOURCE_ADMIN_LISTED = 'PRM resources listed successfully.';
+
+    public const MSG_PRM_RESOURCE_CREATED = 'PRM resource created successfully.';
+
+    public const MSG_PRM_RESOURCE_SHOWN = 'PRM resource loaded successfully.';
+
+    public const MSG_PRM_RESOURCE_UPDATED = 'PRM resource updated successfully.';
+
+    public const MSG_PRM_RESOURCE_STATUS_UPDATED = 'PRM resource status updated successfully.';
+
+    public const MSG_PRM_RESOURCE_DELETED = 'PRM resource deleted successfully.';
+
+    public const MSG_PRM_RESOURCE_ANALYTICS = 'PRM resource analytics loaded successfully.';
 }

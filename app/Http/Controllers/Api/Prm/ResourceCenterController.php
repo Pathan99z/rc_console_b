@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\Prm;
 
 use App\Http\Controllers\Controller;
-use App\Http\Resources\CollateralResource;
+use App\Http\Requests\Prm\ListPartnerResourceCollateralsRequest;
 use App\Http\Responses\ApiResponse;
 use App\Services\Prm\PrmResourceCenterService;
 use App\Support\DomainConstants;
@@ -16,16 +16,18 @@ class ResourceCenterController extends Controller
 
     public function __construct(private readonly PrmResourceCenterService $resourceCenterService) {}
 
-    public function index(Request $request): JsonResponse
+    public function index(ListPartnerResourceCollateralsRequest $request): JsonResponse
     {
         $items = $this->resourceCenterService->listForPartner(
             $request->user(),
-            $request->only(['resource_category']),
-            (int) ($request->input('per_page', 15))
+            $request->validated(),
+            (int) ($request->validated('per_page') ?? 15)
         );
 
         return $this->successResponse(DomainConstants::MSG_PRM_RESOURCE_FETCHED, [
-            'items' => CollateralResource::collection($items->items()),
+            'items' => collect($items->items())->map(
+                fn ($c) => $this->resourceCenterService->partnerResourcePayload($c)
+            ),
             'pagination' => [
                 'current_page' => $items->currentPage(),
                 'per_page' => $items->perPage(),
@@ -37,7 +39,12 @@ class ResourceCenterController extends Controller
 
     public function recordDownload(Request $request, int $collateralId): JsonResponse
     {
-        $this->resourceCenterService->recordDownload($request->user(), $collateralId, $request->ip(), $request->userAgent());
+        $this->resourceCenterService->recordDownload(
+            $request->user(),
+            $collateralId,
+            $request->ip(),
+            $request->userAgent()
+        );
 
         return $this->successResponse(DomainConstants::MSG_PRM_DOWNLOAD_RECORDED);
     }

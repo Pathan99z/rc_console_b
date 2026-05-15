@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\Prm\PartnerLeadController;
 use App\Http\Controllers\Api\Prm\PartnerOpportunityController;
 use App\Http\Controllers\Api\Prm\PartnerPortalShellController;
 use App\Http\Controllers\Api\Prm\PartnerProgramController;
+use App\Http\Controllers\Api\Prm\PrmResourceController;
 use App\Http\Controllers\Api\Prm\PublicOrganizationInvitationController;
 use App\Http\Controllers\Api\Prm\ResourceCenterController;
 use App\Http\Controllers\Api\ProductController;
@@ -96,6 +97,15 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function (): void {
             Route::put('/programs/{programId}', [PartnerProgramController::class, 'update'])->whereNumber('programId');
             Route::patch('/programs/{programId}/status', [PartnerProgramController::class, 'updateStatus'])->whereNumber('programId');
         });
+        Route::middleware('prm.resources.manage')->group(function (): void {
+            Route::get('/resources/analytics', [PrmResourceController::class, 'analytics']);
+            Route::get('/resources', [PrmResourceController::class, 'index']);
+            Route::post('/resources', [PrmResourceController::class, 'store']);
+            Route::get('/resources/{id}', [PrmResourceController::class, 'show'])->whereNumber('id');
+            Route::put('/resources/{id}', [PrmResourceController::class, 'update'])->whereNumber('id');
+            Route::patch('/resources/{id}/status', [PrmResourceController::class, 'updateStatus'])->whereNumber('id');
+            Route::delete('/resources/{id}', [PrmResourceController::class, 'destroy'])->whereNumber('id');
+        });
         Route::post('/programs/enroll', [PartnerProgramController::class, 'enroll']);
         Route::get('/organizations/{organizationId}/program-enrollments', [PartnerProgramController::class, 'enrollments']);
         Route::get('/commission-accruals', [CommissionAccrualController::class, 'index']);
@@ -105,7 +115,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function (): void {
         Route::post('/license-entitlements/{entitlementId}/consume', [LicenseEntitlementController::class, 'consume']);
     });
 
-    Route::middleware(['partner.portal'])->prefix('prm/partner')->group(function (): void {
+    Route::middleware(['partner.portal', 'prm.resources.view'])->prefix('prm/partner')->group(function (): void {
         Route::get('/program-enrollments', [PartnerProgramController::class, 'partnerEnrollments']);
         Route::get('/navigation', [PartnerPortalShellController::class, 'navigation']);
         Route::get('/dashboard', [PartnerPortalShellController::class, 'dashboard']);

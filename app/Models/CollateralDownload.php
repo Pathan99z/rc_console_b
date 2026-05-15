@@ -17,7 +17,15 @@ class CollateralDownload extends Model
         'partner_organization_id',
         'ip_address',
         'user_agent',
+        'downloaded_at',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'downloaded_at' => 'datetime',
+        ];
+    }
 
     public function collateral(): BelongsTo
     {
