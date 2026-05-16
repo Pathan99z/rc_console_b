@@ -14,6 +14,7 @@ use App\Repositories\DealRepository;
 use App\Repositories\PipelineRepository;
 use App\Repositories\PipelineStageRepository;
 use App\Support\DomainConstants;
+use App\Support\Channel\ChannelContext;
 use App\Support\PartnerScopeResolver;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -30,6 +31,7 @@ class DealManagementService
         private readonly DealRepository $dealRepository,
         private readonly DealHistoryRepository $dealHistoryRepository,
         private readonly PartnerScopeResolver $partnerScopeResolver,
+        private readonly ChannelContext $channelContext,
     ) {}
 
     public function listPipelines(User $actor, array $filters, int $perPage): LengthAwarePaginator
@@ -145,8 +147,14 @@ class DealManagementService
             $partnerOrgId = $actor->primaryOrganizationId();
         }
 
+        $channelOrgId = $payload['channel_organization_id'] ?? $partnerOrgId;
+        if ($channelOrgId === null && $actor->isPartnerPortalEligible()) {
+            $channelOrgId = $actor->primaryOrganizationId();
+        }
+
         $deal = $this->dealRepository->create([
             'tenant_id' => $tenantId,
+            'channel_organization_id' => $channelOrgId,
             'partner_organization_id' => $partnerOrgId,
             'partner_registered_by_user_id' => $partnerOrgId ? $actor->id : null,
             'partner_opportunity_fingerprint' => $payload['partner_opportunity_fingerprint'] ?? null,

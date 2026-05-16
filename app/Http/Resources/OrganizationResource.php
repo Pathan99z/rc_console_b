@@ -16,6 +16,7 @@ class OrganizationResource extends JsonResource
             'tenant_id' => $this->tenant_id,
             'parent_organization_id' => $this->parent_organization_id,
             'type' => $this->type,
+            'channel_mode' => $this->channel_mode,
             'legal_name' => $this->legal_name,
             'display_name' => $this->display_name,
             'registration_number' => $this->registration_number,

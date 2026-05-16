@@ -77,4 +77,34 @@ class AccessScopeService
 
         $query->whereIn($partnerOrgColumn, $orgIds);
     }
+
+    /**
+     * Applies channel org visibility with legacy partner_organization_id fallback on the same table.
+     */
+    public function applyChannelOrganizationScope(
+        Builder $query,
+        User $actor,
+        string $channelColumn = 'channel_organization_id',
+        ?string $legacyPartnerColumn = 'partner_organization_id',
+    ): void {
+        if ($actor->isGlobalAdmin() || $actor->isCompanyAdmin()) {
+            return;
+        }
+
+        $orgIds = $this->visibleChannelOrgIds($actor);
+        if ($orgIds === []) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $query->where(function (Builder $inner) use ($orgIds, $channelColumn, $legacyPartnerColumn): void {
+            $inner->whereIn($channelColumn, $orgIds);
+            if ($legacyPartnerColumn !== null) {
+                $inner->orWhere(function (Builder $legacy) use ($orgIds, $channelColumn, $legacyPartnerColumn): void {
+                    $legacy->whereNull($channelColumn)->whereIn($legacyPartnerColumn, $orgIds);
+                });
+            }
+        });
+    }
 }

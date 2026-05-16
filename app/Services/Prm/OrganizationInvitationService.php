@@ -319,9 +319,14 @@ class OrganizationInvitationService
                 'role_code' => ['Partner organizations can only invite partner_admin for initial onboarding.'],
             ]);
         }
-        if ($organization->type === Organization::TYPE_RESELLER && $roleCode !== Role::CODE_RESELLER_ADMIN) {
+        if ($organization->type === Organization::TYPE_RESELLER
+            && ! in_array($roleCode, [
+                Role::CODE_RESELLER_ADMIN,
+                Role::CODE_RESELLER_SALES_MANAGER,
+                Role::CODE_RESELLER_SALES_CONSULTANT,
+            ], true)) {
             throw ValidationException::withMessages([
-                'role_code' => ['Reseller organizations can only invite reseller_admin for initial onboarding.'],
+                'role_code' => ['Invalid role for reseller organization.'],
             ]);
         }
     }
@@ -344,9 +349,16 @@ class OrganizationInvitationService
 
         if ($actor->isPartnerAdmin() && $organization->type === Organization::TYPE_RESELLER) {
             $tree = $this->organizationRepository->channelTreeOrganizationIds((int) ($actor->primaryOrganizationId() ?? 0));
-            if (in_array($organization->id, $tree, true) && $roleCode === Role::CODE_RESELLER_ADMIN) {
+            if (in_array($organization->id, $tree, true)) {
                 return;
             }
+        }
+
+        if ($actor->currentRoleCode() === Role::CODE_RESELLER_ADMIN
+            && $organization->type === Organization::TYPE_RESELLER
+            && (int) $organization->id === (int) ($actor->primaryOrganizationId() ?? 0)
+            && $roleCode !== Role::CODE_RESELLER_ADMIN) {
+            return;
         }
 
         throw ValidationException::withMessages([
@@ -383,6 +395,12 @@ class OrganizationInvitationService
                 ]);
             }
 
+            return;
+        }
+
+        if ($actor->currentRoleCode() === Role::CODE_RESELLER_ADMIN
+            && $org->type === Organization::TYPE_RESELLER
+            && (int) $org->id === (int) ($actor->primaryOrganizationId() ?? 0)) {
             return;
         }
 

@@ -24,8 +24,14 @@ class PartnerPortalShellController extends Controller
 
     public function dashboard(Request $request): JsonResponse
     {
-        return $this->successResponse(DomainConstants::MSG_PRM_PARTNER_DASHBOARD, [
-            'summary' => $this->dashboardService->partnerSummary($request->user()),
+        $filters = $request->validate([
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date', 'after_or_equal:from'],
         ]);
+
+        return $this->successResponse(
+            DomainConstants::MSG_PRM_PARTNER_DASHBOARD,
+            $this->dashboardService->partnerDashboard($request->user(), $filters)
+        );
     }
 }

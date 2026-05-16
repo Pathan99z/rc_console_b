@@ -23,6 +23,7 @@ class Quote extends Model
 
     protected $fillable = [
         'tenant_id',
+        'channel_organization_id',
         'deal_id',
         'contact_id',
         'created_by_user_id',

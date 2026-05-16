@@ -68,14 +68,11 @@ class DealRepository
             return;
         }
 
-        $channelOrgIds = $this->accessScopeService->visibleChannelOrgIds($actor);
-
-        $query->where(function (Builder $inner) use ($actor, $channelOrgIds): void {
+        $query->where(function (Builder $inner) use ($actor): void {
             $this->accessScopeService->applyOwnerTeamScope($inner, $actor, 'owner_user_id');
-
-            if ($channelOrgIds !== []) {
-                $inner->orWhereIn('partner_organization_id', $channelOrgIds);
-            }
+            $inner->orWhere(function (Builder $channelQ) use ($actor): void {
+                $this->accessScopeService->applyChannelOrganizationScope($channelQ, $actor);
+            });
         });
     }
 }

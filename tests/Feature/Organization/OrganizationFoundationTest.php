@@ -465,8 +465,41 @@ class OrganizationFoundationTest extends TestCase
 
         $response = $this->getJson(self::ORGANIZATIONS_ENDPOINT.'/parent-options?child_type=reseller');
         $response->assertOk();
-        $types = collect($response->json('data.items'))->pluck('type')->unique()->values()->all();
-        $this->assertSame([Organization::TYPE_PARTNER], $types);
+        $types = collect($response->json('data.items'))->pluck('type')->unique()->sort()->values()->all();
+        $this->assertSame([Organization::TYPE_COMPANY, Organization::TYPE_PARTNER], $types);
+    }
+
+    public function test_company_admin_can_create_direct_reseller_under_company(): void
+    {
+        [$tenant, $companyAdmin] = $this->tenantWithCompanyAdmin();
+        $company = Organization::query()->create([
+            'tenant_id' => $tenant->id,
+            'type' => Organization::TYPE_COMPANY,
+            'legal_name' => 'Root Legal',
+            'display_name' => 'Root',
+            'onboarding_status' => Organization::ONBOARDING_ACTIVE,
+            'status' => Organization::STATUS_ACTIVE,
+            'created_by_user_id' => $companyAdmin->id,
+            'updated_by_user_id' => $companyAdmin->id,
+        ]);
+
+        Sanctum::actingAs($companyAdmin);
+
+        $response = $this->postJson(self::ORGANIZATIONS_ENDPOINT, [
+            'type' => Organization::TYPE_RESELLER,
+            'parent_organization_id' => $company->id,
+            'legal_name' => 'Direct Reseller Legal',
+            'display_name' => 'Direct Reseller',
+            'onboarding_status' => Organization::ONBOARDING_PENDING_REVIEW,
+        ]);
+
+        $response->assertCreated();
+        $this->assertDatabaseHas('organizations', [
+            'id' => (int) $response->json('data.organization.id'),
+            'type' => Organization::TYPE_RESELLER,
+            'parent_organization_id' => $company->id,
+            'channel_mode' => Organization::CHANNEL_MODE_DIRECT,
+        ]);
     }
 
     public function test_partner_admin_parent_options_for_reseller_returns_only_own_partner(): void

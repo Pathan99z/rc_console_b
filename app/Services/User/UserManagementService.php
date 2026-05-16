@@ -144,6 +144,7 @@ class UserManagementService
             Role::CODE_PARTNER_SALES_MANAGER,
             Role::CODE_PARTNER_SALES_CONSULTANT,
             Role::CODE_RESELLER_ADMIN,
+            Role::CODE_RESELLER_SALES_MANAGER,
             Role::CODE_RESELLER_SALES_CONSULTANT,
         ], true)) {
             throw ValidationException::withMessages([

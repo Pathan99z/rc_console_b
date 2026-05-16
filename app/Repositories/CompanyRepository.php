@@ -103,12 +103,22 @@ class CompanyRepository
             $this->accessScopeService->applyOwnerTeamScope($inner, $actor, 'assigned_user_id', 'created_by_user_id');
 
             if ($channelOrgIds !== []) {
-                $inner->orWhereIn('id', function ($sub) use ($actor, $channelOrgIds): void {
-                    $sub->from('deals')
-                        ->select('company_id')
-                        ->where('tenant_id', $actor->tenant_id)
-                        ->whereNotNull('company_id')
-                        ->whereIn('partner_organization_id', $channelOrgIds);
+                $inner->orWhereIn('channel_organization_id', $channelOrgIds);
+                $inner->orWhere(function (Builder $legacy) use ($actor, $channelOrgIds): void {
+                    $legacy->whereNull('channel_organization_id')
+                        ->whereIn('id', function ($sub) use ($actor, $channelOrgIds): void {
+                            $sub->from('deals')
+                                ->select('company_id')
+                                ->where('tenant_id', $actor->tenant_id)
+                                ->whereNotNull('company_id')
+                                ->where(function ($dealScope) use ($channelOrgIds): void {
+                                    $dealScope->whereIn('channel_organization_id', $channelOrgIds)
+                                        ->orWhere(function ($legacyDeal) use ($channelOrgIds): void {
+                                            $legacyDeal->whereNull('channel_organization_id')
+                                                ->whereIn('partner_organization_id', $channelOrgIds);
+                                        });
+                                });
+                        });
                 });
             }
         });

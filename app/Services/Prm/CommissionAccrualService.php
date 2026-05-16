@@ -9,6 +9,7 @@ use App\Models\Quote;
 use App\Models\User;
 use App\Repositories\AuditLogRepository;
 use App\Services\Auth\AccessScopeService;
+use App\Support\Prm\CommissionAccrualTransition;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Validation\ValidationException;
@@ -18,33 +19,30 @@ class CommissionAccrualService
     public function __construct(
         private readonly AuditLogRepository $auditLogRepository,
         private readonly AccessScopeService $accessScopeService,
+        private readonly CommissionResolutionService $commissionResolutionService,
     ) {}
 
     public function processSuccessfulPayment(Quote $quote, PaymentRecord $record): void
     {
         $quote->loadMissing('deal');
         $deal = $quote->deal;
-        $partnerOrgId = $deal ? (int) ($deal->partner_organization_id ?? 0) : 0;
-        if ($partnerOrgId <= 0) {
+        if (! $deal) {
             return;
         }
 
-        $enrollment = PartnerProgramEnrollment::query()
-            ->with('program')
-            ->where('tenant_id', $quote->tenant_id)
-            ->where('organization_id', $partnerOrgId)
-            ->where('status', PartnerProgramEnrollment::STATUS_ACTIVE)
-            ->orderByDesc('id')
-            ->first();
+        $resolved = $this->commissionResolutionService->resolveForDeal($deal);
+        $beneficiaryOrgId = (int) ($resolved['beneficiary_organization_id'] ?? 0);
+        $percent = (float) ($resolved['commission_percent'] ?? 0);
+        $enrollment = $resolved['enrollment'] ?? null;
 
-        $percent = 0.0;
-        if ($enrollment) {
-            $percent = $enrollment->commission_percent !== null
-                ? (float) $enrollment->commission_percent
-                : (float) ($enrollment->program?->default_commission_percent ?? 0);
+        if ($beneficiaryOrgId <= 0 || $percent <= 0) {
+            return;
         }
 
-        if ($percent <= 0) {
+        if ($record->id && CommissionAccrual::query()
+            ->where('payment_record_id', $record->id)
+            ->where('status', '!=', CommissionAccrual::STATUS_VOID)
+            ->exists()) {
             return;
         }
 
@@ -53,7 +51,7 @@ class CommissionAccrualService
 
         CommissionAccrual::query()->create([
             'tenant_id' => $quote->tenant_id,
-            'partner_organization_id' => $partnerOrgId,
+            'partner_organization_id' => $beneficiaryOrgId,
             'partner_program_enrollment_id' => $enrollment?->id,
             'payment_record_id' => $record->id,
             'quote_id' => $quote->id,
@@ -65,13 +63,31 @@ class CommissionAccrualService
             'rule_snapshot' => [
                 'percent' => $percent,
                 'enrollment_id' => $enrollment?->id,
+                'resolution_mode' => $resolved['resolution_mode'],
+                'channel_organization_id' => $deal->channel_organization_id ?? $deal->partner_organization_id,
             ],
         ]);
     }
 
     public function listForActor(User $actor, int $perPage): LengthAwarePaginator
     {
-        $q = CommissionAccrual::query()->orderByDesc('id');
+        $q = CommissionAccrual::query()
+            ->with([
+                'partnerOrganization:id,tenant_id,type,display_name,legal_name',
+                'quote' => fn ($query) => $query->select([
+                    'id',
+                    'tenant_id',
+                    'deal_id',
+                    'quote_number',
+                    'status',
+                    'payment_status',
+                    'total',
+                    'currency_code',
+                ])->with('deal:id,name'),
+                'paymentRecord:id,quote_id,amount,currency_code,status,transaction_id',
+                'payoutLineItem.payout:id,status,payout_number',
+            ])
+            ->orderByDesc('id');
         if ($actor->isGlobalAdmin()) {
             return $q->paginate($perPage);
         }
@@ -96,9 +112,9 @@ class CommissionAccrualService
 
     public function updateStatus(User $actor, int $accrualId, string $status, ?string $ip, ?string $ua): CommissionAccrual
     {
-        if (! $actor->isCompanyAdmin() && ! $actor->isGlobalAdmin()) {
+        if (! $actor->isCompanyAdmin() && ! $actor->isGlobalAdmin() && ! $actor->isFinanceAdmin()) {
             throw ValidationException::withMessages([
-                'organization' => ['Only company administrators can update commission status.'],
+                'organization' => ['Only finance administrators can update commission status.'],
             ]);
         }
 
@@ -115,6 +131,8 @@ class CommissionAccrualService
         ], true)) {
             throw ValidationException::withMessages(['status' => ['Invalid status.']]);
         }
+
+        CommissionAccrualTransition::assertCanTransition($accrual->status, $status);
 
         $before = $accrual->toArray();
         $updates = ['status' => $status];

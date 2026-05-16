@@ -10,8 +10,15 @@ class UpdateCompanyRequest extends FormRequest
     public function authorize(): bool
     {
         $user = $this->user();
+        if (! $user) {
+            return false;
+        }
 
-        return (bool) ($user?->isCompanyAdmin() || $user?->isGlobalAdmin());
+        if ($user->isCompanyAdmin() || $user->isGlobalAdmin()) {
+            return true;
+        }
+
+        return $user->isPartnerChannelUser() || $user->isResellerRole();
     }
 
     public function rules(): array

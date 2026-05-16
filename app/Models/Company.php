@@ -16,6 +16,7 @@ class Company extends Model
 
     protected $fillable = [
         'tenant_id',
+        'channel_organization_id',
         'created_by_user_id',
         'assigned_user_id',
         'name',

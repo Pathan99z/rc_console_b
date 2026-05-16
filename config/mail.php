@@ -38,7 +38,7 @@ return [
     'mailers' => [
 
         'smtp' => [
-            'transport' => 'smtp',
+            'transport' => 'organization-aware',
             'scheme' => env('MAIL_SCHEME'),
             'url' => env('MAIL_URL'),
             'host' => env('MAIL_HOST', '127.0.0.1'),

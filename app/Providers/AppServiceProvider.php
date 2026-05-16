@@ -3,8 +3,10 @@
 namespace App\Providers;
 
 use App\Models\Invoice;
+use App\Models\Organization;
 use App\Models\User;
 use App\Policies\InvoicePolicy;
+use App\Policies\OrganizationDashboardPolicy;
 use App\Services\Auth\PermissionResolverService;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -28,6 +30,10 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Gate::policy(Invoice::class, InvoicePolicy::class);
+
+        Gate::define('viewOrganizationDashboard', function (User $user, Organization $organization): bool {
+            return app(OrganizationDashboardPolicy::class)->view($user, $organization);
+        });
 
         Gate::define('access-prm-partner', function (User $user): bool {
             return app(PermissionResolverService::class)->canAny($user, [

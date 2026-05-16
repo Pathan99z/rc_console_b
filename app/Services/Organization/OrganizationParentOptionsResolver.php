@@ -60,9 +60,20 @@ class OrganizationParentOptionsResolver
         }
 
         if ($actor->isGlobalAdmin() || $actor->isCompanyAdmin()) {
-            return $this->mapCandidates(
-                $this->organizationRepository->listParentCandidates($tenantId, Organization::TYPE_PARTNER, null, $includeInactive)
+            $companies = $this->organizationRepository->listParentCandidates(
+                $tenantId,
+                Organization::TYPE_COMPANY,
+                null,
+                $includeInactive
             );
+            $partners = $this->organizationRepository->listParentCandidates(
+                $tenantId,
+                Organization::TYPE_PARTNER,
+                null,
+                $includeInactive
+            );
+
+            return $this->mapCandidates($companies->concat($partners));
         }
 
         if ($actor->currentRoleCode() === Role::CODE_PARTNER_ADMIN) {

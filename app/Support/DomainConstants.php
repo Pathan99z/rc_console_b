@@ -320,6 +320,10 @@ class DomainConstants
 
     public const MSG_PRM_PARTNER_DASHBOARD = 'Partner dashboard loaded.';
 
+    public const MSG_ORGANIZATION_DASHBOARD_FETCHED = 'Organization dashboard fetched successfully.';
+
+    public const MSG_PRM_RESELLER_DASHBOARD = 'Reseller dashboard loaded.';
+
     public const MSG_PRM_LEAD_CREATED = 'Partner lead created successfully.';
 
     public const MSG_PRM_LEAD_UPDATED = 'Partner lead updated successfully.';
@@ -371,4 +375,72 @@ class DomainConstants
     public const MSG_PRM_RESOURCE_DELETED = 'PRM resource deleted successfully.';
 
     public const MSG_PRM_RESOURCE_ANALYTICS = 'PRM resource analytics loaded successfully.';
+
+    public const MSG_PRM_PAYOUT_FETCHED = 'Payouts fetched successfully.';
+
+    public const MSG_PRM_PAYOUT_GENERATED = 'Payout generated successfully.';
+
+    public const MSG_PRM_PAYOUT_UPDATED = 'Payout updated successfully.';
+
+    public const MSG_PRM_PAYOUT_PAID = 'Payout marked as paid successfully.';
+
+    public const MSG_PRM_PAYOUT_REVERSED = 'Payout reversed successfully.';
+
+    public const MSG_PRM_PAYOUT_STATEMENT = 'Payout statement loaded successfully.';
+
+    public const MSG_PRM_PAYOUT_RECONCILIATION = 'Payout reconciliation loaded successfully.';
+
+    public const MSG_PRM_PAYOUT_BATCH_CREATED = 'Payout batch created successfully.';
+
+    public const MSG_PRM_PAYOUT_BATCH_FETCHED = 'Payout batch fetched successfully.';
+
+    public const MSG_PRM_PAYOUT_BATCH_UPDATED = 'Payout batch updated successfully.';
+
+    public const MSG_PRM_PAYOUT_ADJUSTMENT_FETCHED = 'Payout adjustments fetched successfully.';
+
+    public const MSG_PRM_PAYOUT_ADJUSTMENT_CREATED = 'Payout adjustment created successfully.';
+
+    public const MSG_PRM_PAYOUT_DISPUTE_FETCHED = 'Payout disputes fetched successfully.';
+
+    public const MSG_PRM_PAYOUT_DISPUTE_CREATED = 'Payout dispute created successfully.';
+
+    public const MSG_PRM_PAYOUT_DISPUTE_UPDATED = 'Payout dispute updated successfully.';
+
+    public const MSG_PRM_PAYOUT_ACCOUNT_FETCHED = 'Payout accounts fetched successfully.';
+
+    public const MSG_PRM_PAYOUT_ACCOUNT_CREATED = 'Payout account created successfully.';
+
+    public const MSG_PRM_PAYOUT_ACCOUNT_UPDATED = 'Payout account updated successfully.';
+
+    public const MSG_PRM_PAYOUT_ACCOUNT_VERIFIED = 'Payout account verified successfully.';
+
+    public const MSG_TASK_FETCHED = 'Tasks fetched successfully.';
+
+    public const MSG_TASK_CREATED = 'Task created successfully.';
+
+    public const MSG_TASK_UPDATED = 'Task updated successfully.';
+
+    public const MSG_TASK_DELETED = 'Task deleted successfully.';
+
+    public const MSG_TASK_ASSIGNED = 'Task assigned successfully.';
+
+    public const MSG_TASK_ASSIGNABLE_USERS_FETCHED = 'Assignable users fetched successfully.';
+
+    public const MSG_DEMO_LINK_FETCHED = 'Demo links fetched successfully.';
+
+    public const MSG_DEMO_LINK_CREATED = 'Demo link created successfully.';
+
+    public const MSG_DEMO_LINK_UPDATED = 'Demo link updated successfully.';
+
+    public const MSG_DEMO_LINK_DELETED = 'Demo link deleted successfully.';
+
+    public const MSG_DEMO_LINK_STATUS_CHECKED = 'Demo link status checked successfully.';
+
+    public const MSG_DEMO_LINK_SHAREABLE_ORGS_FETCHED = 'Shareable organizations fetched successfully.';
+
+    public const MSG_EMAIL_SETTINGS_FETCHED = 'Organization email settings fetched successfully.';
+
+    public const MSG_EMAIL_SETTINGS_UPDATED = 'Organization email settings updated successfully.';
+
+    public const MSG_EMAIL_SETTINGS_PROVIDERS_FETCHED = 'Mail provider presets fetched successfully.';
 }

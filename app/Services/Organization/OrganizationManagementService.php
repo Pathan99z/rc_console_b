@@ -7,6 +7,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Repositories\AuditLogRepository;
 use App\Repositories\OrganizationRepository;
+use App\Support\Channel\ChannelContext;
 use App\Support\DomainConstants;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -19,6 +20,7 @@ class OrganizationManagementService
         private readonly AuditLogRepository $auditLogRepository,
         private readonly OrganizationParentOptionsResolver $parentOptionsResolver,
         private readonly OrganizationImplicitParentApplier $implicitParentApplier,
+        private readonly ChannelContext $channelContext,
     ) {}
 
     public function listOrganizations(User $actor, array $filters, int $perPage): LengthAwarePaginator
@@ -48,6 +50,7 @@ class OrganizationManagementService
 
         $this->assertCreatePermission($actor, $payload);
         $this->assertParentRules($payload['tenant_id'], $payload['type'], $payload['parent_organization_id'] ?? null, $actor);
+        $this->applyChannelMode($payload);
 
         $organization = $this->organizationRepository->create($payload);
         $this->audit(
@@ -277,9 +280,19 @@ class OrganizationManagementService
             ]);
         }
 
-        if ($type === Organization::TYPE_RESELLER && $parent->type !== Organization::TYPE_PARTNER) {
+        if ($type === Organization::TYPE_RESELLER
+            && ! in_array($parent->type, [Organization::TYPE_PARTNER, Organization::TYPE_COMPANY], true)) {
             throw ValidationException::withMessages([
-                'parent_organization_id' => ['Reseller parent must be partner organization.'],
+                'parent_organization_id' => ['Reseller parent must be a company or partner organization.'],
+            ]);
+        }
+
+        if ($type === Organization::TYPE_RESELLER
+            && $parent->type === Organization::TYPE_COMPANY
+            && ! $actor->isGlobalAdmin()
+            && ! $actor->isCompanyAdmin()) {
+            throw ValidationException::withMessages([
+                'parent_organization_id' => ['Only company administrators can create direct resellers under the company.'],
             ]);
         }
 
@@ -347,6 +360,29 @@ class OrganizationManagementService
         }
 
         return $hasAccess;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function applyChannelMode(array &$payload): void
+    {
+        if (($payload['type'] ?? '') !== Organization::TYPE_RESELLER) {
+            return;
+        }
+
+        if (! empty($payload['channel_mode'])) {
+            return;
+        }
+
+        $parentId = (int) ($payload['parent_organization_id'] ?? 0);
+        if ($parentId <= 0) {
+            $payload['channel_mode'] = Organization::CHANNEL_MODE_DIRECT;
+
+            return;
+        }
+
+        $payload['channel_mode'] = $this->channelContext->inferChannelModeForReseller($parentId);
     }
 
     private function resolveTenantId(User $actor, array $payload): int

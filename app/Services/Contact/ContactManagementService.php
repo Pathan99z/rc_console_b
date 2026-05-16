@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Repositories\CompanyRepository;
 use App\Repositories\ContactActivityRepository;
 use App\Repositories\ContactRepository;
+use App\Support\Channel\ChannelContext;
 use App\Support\DomainConstants;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -23,6 +24,7 @@ class ContactManagementService
         private readonly CompanyRepository $companyRepository,
         private readonly ContactRepository $contactRepository,
         private readonly ContactActivityRepository $activityRepository,
+        private readonly ChannelContext $channelContext,
     ) {
     }
 
@@ -38,6 +40,7 @@ class ContactManagementService
     {
         $payload['tenant_id'] = $this->resolveTenantId($actor, $payload);
         $payload['created_by_user_id'] = $actor->id;
+        $this->channelContext->stampPayload($actor, $payload);
         $this->guardCompanyAssignee($payload['tenant_id'], $payload['assigned_user_id'] ?? null);
         $this->ensureUniqueCompanyEmail((int) $payload['tenant_id'], $payload['email'] ?? null);
         $company = $this->companyRepository->create($payload);
@@ -96,6 +99,7 @@ class ContactManagementService
         $payload['created_by_user_id'] = $actor->id;
         $payload['updated_by_user_id'] = $actor->id;
         $payload['lifecycle_stage'] = (int) ($payload['lifecycle_stage'] ?? Contact::STAGE_LEAD);
+        $this->channelContext->stampPayload($actor, $payload);
         $this->ensureUniqueContactEmail((int) $payload['tenant_id'], $payload['email'] ?? null);
         $this->guardTenantForeigns($actor, $payload);
 

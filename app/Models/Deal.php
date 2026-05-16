@@ -20,6 +20,7 @@ class Deal extends Model
 
     protected $fillable = [
         'tenant_id',
+        'channel_organization_id',
         'partner_organization_id',
         'partner_registered_by_user_id',
         'partner_opportunity_fingerprint',

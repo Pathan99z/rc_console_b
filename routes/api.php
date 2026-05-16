@@ -8,23 +8,36 @@ use App\Http\Controllers\Api\DealController;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\NavigationController;
 use App\Http\Controllers\Api\OrganizationController;
+use App\Http\Controllers\Api\OrganizationDashboardController;
+use App\Http\Controllers\Api\OrganizationUserController;
 use App\Http\Controllers\Api\PayFastWebhookController;
 use App\Http\Controllers\Api\PaymentSettingsController;
 use App\Http\Controllers\Api\PipelineController;
 use App\Http\Controllers\Api\PipelineStageController;
 use App\Http\Controllers\Api\Prm\CommissionAccrualController;
+use App\Http\Controllers\Api\Prm\PartnerPayoutPortalController;
+use App\Http\Controllers\Api\Prm\PayoutAccountController;
+use App\Http\Controllers\Api\Prm\PayoutAdjustmentController;
+use App\Http\Controllers\Api\Prm\PayoutBatchController;
+use App\Http\Controllers\Api\Prm\PayoutController;
+use App\Http\Controllers\Api\Prm\PayoutDisputeController;
+use App\Http\Controllers\Api\Prm\ResellerPayoutPortalController;
 use App\Http\Controllers\Api\Prm\LicenseEntitlementController;
 use App\Http\Controllers\Api\Prm\OrganizationInvitationAdminController;
 use App\Http\Controllers\Api\Prm\PartnerLeadController;
 use App\Http\Controllers\Api\Prm\PartnerOpportunityController;
 use App\Http\Controllers\Api\Prm\PartnerPortalShellController;
 use App\Http\Controllers\Api\Prm\PartnerProgramController;
+use App\Http\Controllers\Api\Prm\ResellerPortalShellController;
 use App\Http\Controllers\Api\Prm\PrmResourceController;
 use App\Http\Controllers\Api\Prm\PublicOrganizationInvitationController;
 use App\Http\Controllers\Api\Prm\ResourceCenterController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\QuoteController;
 use App\Http\Controllers\Api\QuotePaymentLinkController;
+use App\Http\Controllers\Api\DemoLinkController;
+use App\Http\Controllers\Api\Settings\OrganizationEmailSettingsController;
+use App\Http\Controllers\Api\TaskController;
 use App\Http\Controllers\Api\TeamController;
 use App\Http\Controllers\Api\TenantController;
 use App\Http\Controllers\Api\UserManagementController;
@@ -61,13 +74,61 @@ Route::middleware(['throttle:partner-invite-accept'])->group(function (): void {
     Route::post('/prm/invitations/accept', [PublicOrganizationInvitationController::class, 'accept']);
 });
 
-Route::middleware(['auth:sanctum', 'tenant.context'])->group(function (): void {
+Route::get('/demo-links/{id}/screenshot', [DemoLinkController::class, 'screenshot'])
+    ->middleware(['signed'])
+    ->whereNumber('id')
+    ->name('demo-links.screenshot');
+
+Route::middleware(['auth:sanctum', 'tenant.context', 'organization.mail.context'])->group(function (): void {
     Route::post('/email/verification-notification', [AuthController::class, 'resendVerification'])
         ->middleware('throttle:verify-email')
         ->name('verification.send');
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'user']);
     Route::get('/navigation', [NavigationController::class, 'index']);
+
+    Route::middleware('tasks.view')->group(function (): void {
+        Route::get('/tasks/assignable-users', [TaskController::class, 'assignableUsers']);
+        Route::get('/tasks', [TaskController::class, 'index']);
+        Route::get('/tasks/{id}', [TaskController::class, 'show'])->whereNumber('id');
+    });
+
+    Route::middleware('tasks.manage')->group(function (): void {
+        Route::post('/tasks', [TaskController::class, 'store']);
+        Route::patch('/tasks/{id}', [TaskController::class, 'update'])->whereNumber('id');
+        Route::delete('/tasks/{id}', [TaskController::class, 'destroy'])->whereNumber('id');
+        Route::post('/tasks/{id}/start', [TaskController::class, 'start'])->whereNumber('id');
+        Route::post('/tasks/{id}/complete', [TaskController::class, 'complete'])->whereNumber('id');
+        Route::post('/tasks/{id}/cancel', [TaskController::class, 'cancel'])->whereNumber('id');
+        Route::post('/tasks/{id}/reopen', [TaskController::class, 'reopen'])->whereNumber('id');
+    });
+
+    Route::middleware('tasks.assign')->group(function (): void {
+        Route::post('/tasks/{id}/assign', [TaskController::class, 'assign'])->whereNumber('id');
+    });
+
+    Route::middleware('demo_links.view')->group(function (): void {
+        Route::get('/demo-links/shareable-organizations', [DemoLinkController::class, 'shareableOrganizations']);
+        Route::get('/demo-links', [DemoLinkController::class, 'index']);
+        Route::get('/demo-links/{id}', [DemoLinkController::class, 'show'])->whereNumber('id');
+        Route::post('/demo-links/{id}/check-status', [DemoLinkController::class, 'checkStatus'])->whereNumber('id');
+    });
+
+    Route::middleware('demo_links.manage')->group(function (): void {
+        Route::post('/demo-links', [DemoLinkController::class, 'store']);
+        Route::patch('/demo-links/{id}', [DemoLinkController::class, 'update'])->whereNumber('id');
+        Route::delete('/demo-links/{id}', [DemoLinkController::class, 'destroy'])->whereNumber('id');
+    });
+
+    Route::middleware('email_settings.view')->group(function (): void {
+        Route::get('/settings/email', [OrganizationEmailSettingsController::class, 'show']);
+        Route::get('/settings/email/providers', [OrganizationEmailSettingsController::class, 'providers']);
+    });
+
+    Route::middleware('email_settings.manage')->group(function (): void {
+        Route::patch('/settings/email', [OrganizationEmailSettingsController::class, 'update']);
+        Route::post('/settings/email/test', [OrganizationEmailSettingsController::class, 'test']);
+    });
 
     Route::get('/users', [UserManagementController::class, 'index']);
     Route::post('/users', [UserManagementController::class, 'store']);
@@ -84,10 +145,26 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function (): void {
     Route::post('/organizations/{organizationId}/reject', [OrganizationController::class, 'reject']);
     Route::post('/organizations/{organizationId}/suspend', [OrganizationController::class, 'suspend']);
 
+    Route::get('/organizations/{organizationId}/users', [OrganizationUserController::class, 'index']);
+    Route::post('/organizations/{organizationId}/users/invite', [OrganizationUserController::class, 'invite']);
+    Route::patch('/organizations/{organizationId}/users/{userId}/status', [OrganizationUserController::class, 'updateStatus']);
+    Route::post('/organizations/{organizationId}/users/{userId}/reset-password', [OrganizationUserController::class, 'resetPassword']);
+
     Route::get('/organizations/{organizationId}/invitations', [OrganizationInvitationAdminController::class, 'index']);
     Route::post('/organizations/{organizationId}/invitations', [OrganizationInvitationAdminController::class, 'store']);
     Route::post('/organizations/{organizationId}/invitations/{invitationId}/resend', [OrganizationInvitationAdminController::class, 'resend']);
     Route::delete('/organizations/{organizationId}/invitations/{invitationId}', [OrganizationInvitationAdminController::class, 'destroy']);
+
+    Route::get('/organizations/{organizationId}/dashboard', [OrganizationDashboardController::class, 'overview']);
+    Route::get('/organizations/{organizationId}/dashboard/overview', [OrganizationDashboardController::class, 'overview']);
+    Route::get('/organizations/{organizationId}/dashboard/pipeline', [OrganizationDashboardController::class, 'pipeline']);
+    Route::get('/organizations/{organizationId}/dashboard/revenue', [OrganizationDashboardController::class, 'revenue']);
+    Route::get('/organizations/{organizationId}/dashboard/commissions', [OrganizationDashboardController::class, 'commissions']);
+    Route::get('/organizations/{organizationId}/dashboard/licenses', [OrganizationDashboardController::class, 'licenses']);
+    Route::get('/organizations/{organizationId}/dashboard/activity', [OrganizationDashboardController::class, 'activity']);
+    Route::get('/organizations/{organizationId}/dashboard/team', [OrganizationDashboardController::class, 'team']);
+    Route::get('/organizations/{organizationId}/dashboard/resources', [OrganizationDashboardController::class, 'resources']);
+    Route::get('/organizations/{organizationId}/dashboard/payouts', [OrganizationDashboardController::class, 'payouts']);
 
     Route::prefix('prm')->group(function (): void {
         Route::middleware('prm.programs.manage')->group(function (): void {
@@ -113,9 +190,45 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function (): void {
         Route::get('/license-entitlements', [LicenseEntitlementController::class, 'index']);
         Route::post('/license-entitlements', [LicenseEntitlementController::class, 'store']);
         Route::post('/license-entitlements/{entitlementId}/consume', [LicenseEntitlementController::class, 'consume']);
+        Route::post('/license-entitlements/transfer', [LicenseEntitlementController::class, 'transfer']);
+        Route::post('/license-entitlements/{entitlementId}/activate', [LicenseEntitlementController::class, 'activate']);
+
+        Route::middleware('prm.payouts.view')->group(function (): void {
+            Route::get('/payouts', [PayoutController::class, 'index']);
+            Route::get('/payouts/export', [PayoutController::class, 'export']);
+            Route::get('/payout-reconciliation', [PayoutController::class, 'reconciliation']);
+            Route::get('/payouts/{payoutId}/proof', [PayoutController::class, 'proof'])->whereNumber('payoutId');
+            Route::get('/payouts/{payoutId}', [PayoutController::class, 'show'])->whereNumber('payoutId');
+            Route::get('/payouts/{payoutId}/statement', [PayoutController::class, 'statement'])->whereNumber('payoutId');
+            Route::get('/payout-adjustments', [PayoutAdjustmentController::class, 'index']);
+            Route::get('/payout-disputes', [PayoutDisputeController::class, 'index']);
+            Route::get('/payout-accounts', [PayoutAccountController::class, 'index']);
+            Route::get('/payout-batches/{batchId}', [PayoutBatchController::class, 'show'])->whereNumber('batchId');
+            Route::post('/payout-disputes', [PayoutDisputeController::class, 'store']);
+        });
+
+        Route::middleware('prm.payouts.manage')->group(function (): void {
+            Route::post('/payouts/generate', [PayoutController::class, 'generate']);
+            Route::post('/payouts/{payoutId}/submit', [PayoutController::class, 'submit'])->whereNumber('payoutId');
+            Route::post('/payouts/{payoutId}/approve', [PayoutController::class, 'approve'])->whereNumber('payoutId');
+            Route::post('/payouts/{payoutId}/reject', [PayoutController::class, 'reject'])->whereNumber('payoutId');
+            Route::post('/payouts/{payoutId}/process', [PayoutController::class, 'process'])->whereNumber('payoutId');
+            Route::post('/payouts/{payoutId}/mark-paid', [PayoutController::class, 'markPaid'])->whereNumber('payoutId');
+            Route::post('/payouts/{payoutId}/fail', [PayoutController::class, 'fail'])->whereNumber('payoutId');
+            Route::post('/payouts/{payoutId}/reverse', [PayoutController::class, 'reverse'])->whereNumber('payoutId');
+            Route::post('/payout-adjustments', [PayoutAdjustmentController::class, 'store']);
+            Route::post('/payout-disputes/{disputeId}/resolve', [PayoutDisputeController::class, 'resolve'])->whereNumber('disputeId');
+            Route::post('/payout-disputes/{disputeId}/reject', [PayoutDisputeController::class, 'reject'])->whereNumber('disputeId');
+            Route::post('/payout-accounts', [PayoutAccountController::class, 'store']);
+            Route::patch('/payout-accounts/{accountId}', [PayoutAccountController::class, 'update'])->whereNumber('accountId');
+            Route::post('/payout-accounts/{accountId}/verify', [PayoutAccountController::class, 'verify'])->whereNumber('accountId');
+            Route::post('/payout-batches', [PayoutBatchController::class, 'store']);
+            Route::post('/payout-batches/{batchId}/process', [PayoutBatchController::class, 'process'])->whereNumber('batchId');
+            Route::post('/payout-batches/{batchId}/mark-paid', [PayoutBatchController::class, 'markPaid'])->whereNumber('batchId');
+        });
     });
 
-    Route::middleware(['partner.portal', 'prm.resources.view'])->prefix('prm/partner')->group(function (): void {
+    Route::middleware(['partner.portal', 'prm.resources.view', 'organization.active'])->prefix('prm/partner')->group(function (): void {
         Route::get('/program-enrollments', [PartnerProgramController::class, 'partnerEnrollments']);
         Route::get('/navigation', [PartnerPortalShellController::class, 'navigation']);
         Route::get('/dashboard', [PartnerPortalShellController::class, 'dashboard']);
@@ -125,6 +238,21 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function (): void {
         Route::post('/opportunities', [PartnerOpportunityController::class, 'store']);
         Route::get('/resources/collaterals', [ResourceCenterController::class, 'index']);
         Route::post('/resources/collaterals/{collateralId}/downloads', [ResourceCenterController::class, 'recordDownload']);
+        Route::middleware('prm.payouts.view')->group(function (): void {
+            Route::get('/payouts', [PartnerPayoutPortalController::class, 'index']);
+            Route::get('/payouts/statements', [PartnerPayoutPortalController::class, 'statements']);
+            Route::get('/payouts/{payoutId}', [PartnerPayoutPortalController::class, 'show'])->whereNumber('payoutId');
+        });
+    });
+
+    Route::middleware(['partner.portal', 'prm.resources.view', 'organization.active'])->prefix('prm/reseller')->group(function (): void {
+        Route::get('/navigation', [ResellerPortalShellController::class, 'navigation']);
+        Route::get('/dashboard', [ResellerPortalShellController::class, 'dashboard']);
+        Route::middleware('prm.payouts.view')->group(function (): void {
+            Route::get('/payouts', [ResellerPayoutPortalController::class, 'index']);
+            Route::get('/payouts/statements', [ResellerPayoutPortalController::class, 'statements']);
+            Route::get('/payouts/{payoutId}', [ResellerPayoutPortalController::class, 'show'])->whereNumber('payoutId');
+        });
     });
 
     Route::get('/tenants', [TenantController::class, 'index']);
@@ -134,6 +262,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function (): void {
     Route::put('/teams/{teamId}', [TeamController::class, 'update']);
     Route::delete('/teams/{teamId}', [TeamController::class, 'destroy']);
 
+    Route::middleware('organization.active')->group(function (): void {
     Route::get('/companies', [CompanyController::class, 'index']);
     Route::post('/companies', [CompanyController::class, 'store']);
     Route::get('/companies/export', [CompanyController::class, 'export']);
@@ -203,4 +332,5 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function (): void {
     Route::get('/settings/payment', [PaymentSettingsController::class, 'show']);
     Route::post('/settings/payment', [PaymentSettingsController::class, 'store']);
     Route::put('/settings/payment', [PaymentSettingsController::class, 'update']);
+    });
 });

@@ -8,6 +8,7 @@ use App\Models\LicenseEntitlement;
 use App\Models\Organization;
 use App\Models\Product;
 use App\Services\Prm\LicenseEntitlementService;
+use App\Services\Prm\LicenseLedgerService;
 use App\Support\DomainConstants;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,7 +17,10 @@ class LicenseEntitlementController extends Controller
 {
     use ApiResponse;
 
-    public function __construct(private readonly LicenseEntitlementService $licenseEntitlementService) {}
+    public function __construct(
+        private readonly LicenseEntitlementService $licenseEntitlementService,
+        private readonly LicenseLedgerService $licenseLedgerService,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -67,6 +71,52 @@ class LicenseEntitlementController extends Controller
 
         return $this->successResponse(DomainConstants::MSG_PRM_LICENSE_CONSUMED, [
             'entitlement' => $this->entitlementConsumedPayload($row),
+        ]);
+    }
+
+    public function transfer(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'from_entitlement_id' => ['required', 'integer', 'exists:license_entitlements,id'],
+            'to_organization_id' => ['required', 'integer', 'exists:organizations,id'],
+            'units' => ['required', 'integer', 'min:1'],
+            'notes' => ['nullable', 'string'],
+            'reference' => ['nullable', 'string', 'max:120'],
+            'metadata' => ['nullable', 'array'],
+        ]);
+
+        $row = $this->licenseLedgerService->transfer(
+            $request->user(),
+            $data,
+            $request->ip(),
+            $request->userAgent()
+        );
+
+        return $this->successResponse(DomainConstants::MSG_PRM_LICENSE_ALLOCATED, [
+            'entitlement' => $this->entitlementAllocatedPayload($row),
+        ], 201);
+    }
+
+    public function activate(Request $request, int $entitlementId): JsonResponse
+    {
+        $data = $request->validate([
+            'units' => ['required', 'integer', 'min:1'],
+            'contact_id' => ['nullable', 'integer', 'exists:contacts,id'],
+            'company_id' => ['nullable', 'integer', 'exists:companies,id'],
+            'reference' => ['nullable', 'string', 'max:120'],
+            'metadata' => ['nullable', 'array'],
+        ]);
+
+        $activation = $this->licenseLedgerService->activateToCustomer(
+            $request->user(),
+            $entitlementId,
+            $data,
+            $request->ip(),
+            $request->userAgent()
+        );
+
+        return $this->successResponse(DomainConstants::MSG_PRM_LICENSE_CONSUMED, [
+            'activation' => $activation,
         ]);
     }
 

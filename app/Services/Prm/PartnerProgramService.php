@@ -55,9 +55,16 @@ class PartnerProgramService
             throw ValidationException::withMessages(['organization_id' => ['Invalid organization.']]);
         }
 
-        if ($org->type !== Organization::TYPE_PARTNER) {
+        if (! in_array($org->type, [Organization::TYPE_PARTNER, Organization::TYPE_RESELLER], true)) {
             throw ValidationException::withMessages([
-                'organization_id' => ['Program enrollment is only available for partner organizations.'],
+                'organization_id' => ['Program enrollment is only available for partner or direct reseller organizations.'],
+            ]);
+        }
+
+        if ($org->type === Organization::TYPE_RESELLER
+            && $org->channel_mode === Organization::CHANNEL_MODE_PARTNER_MANAGED) {
+            throw ValidationException::withMessages([
+                'organization_id' => ['Partner-managed resellers inherit commercial terms from the parent partner.'],
             ]);
         }
 

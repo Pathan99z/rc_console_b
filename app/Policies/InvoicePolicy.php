@@ -40,7 +40,15 @@ class InvoicePolicy
         }
 
         $orgIds = $this->accessScopeService->visibleChannelOrgIds($user);
+        if ($orgIds === []) {
+            return false;
+        }
 
-        return $orgIds !== [] && in_array((int) ($deal->partner_organization_id ?? 0), $orgIds, true);
+        $channelOrgId = (int) ($deal->channel_organization_id ?? 0);
+        if ($channelOrgId > 0 && in_array($channelOrgId, $orgIds, true)) {
+            return true;
+        }
+
+        return in_array((int) ($deal->partner_organization_id ?? 0), $orgIds, true);
     }
 }

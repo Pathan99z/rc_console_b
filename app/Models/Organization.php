@@ -18,6 +18,10 @@ class Organization extends Model
 
     public const TYPE_RESELLER = 'reseller';
 
+    public const CHANNEL_MODE_DIRECT = 'direct';
+
+    public const CHANNEL_MODE_PARTNER_MANAGED = 'partner_managed';
+
     public const STATUS_ACTIVE = 'active';
 
     public const STATUS_INACTIVE = 'inactive';
@@ -41,6 +45,7 @@ class Organization extends Model
         'tenant_id',
         'parent_organization_id',
         'type',
+        'channel_mode',
         'legal_name',
         'display_name',
         'registration_number',

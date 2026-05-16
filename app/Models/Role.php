@@ -14,6 +14,8 @@ class Role extends Model
 
     public const CODE_COMPANY_ADMIN = 'company_admin';
 
+    public const CODE_FINANCE_ADMIN = 'finance_admin';
+
     public const CODE_USER = 'user';
 
     public const CODE_PARTNER_ADMIN = 'partner_admin';
@@ -23,6 +25,8 @@ class Role extends Model
     public const CODE_PARTNER_SALES_CONSULTANT = 'partner_sales_consultant';
 
     public const CODE_RESELLER_ADMIN = 'reseller_admin';
+
+    public const CODE_RESELLER_SALES_MANAGER = 'reseller_sales_manager';
 
     public const CODE_RESELLER_SALES_CONSULTANT = 'reseller_sales_consultant';
 

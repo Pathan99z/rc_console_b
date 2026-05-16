@@ -53,6 +53,7 @@ class QuoteService
             $computed = $this->buildComputedItems($tenantId, $payload['products'], (float) ($payload['discount_total'] ?? 0));
             $quote = $this->quoteRepository->create([
                 'tenant_id' => $tenantId,
+                'channel_organization_id' => $deal->channel_organization_id ?? $deal->partner_organization_id,
                 'deal_id' => $deal->id,
                 'contact_id' => $contact->id,
                 'created_by_user_id' => $actor->id,

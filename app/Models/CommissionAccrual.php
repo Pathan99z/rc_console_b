@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class CommissionAccrual extends Model
 {
@@ -63,5 +64,10 @@ class CommissionAccrual extends Model
     public function enrollment(): BelongsTo
     {
         return $this->belongsTo(PartnerProgramEnrollment::class, 'partner_program_enrollment_id');
+    }
+
+    public function payoutLineItem(): HasOne
+    {
+        return $this->hasOne(PayoutLineItem::class);
     }
 }

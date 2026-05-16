@@ -136,6 +136,11 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->currentRoleCode() === Role::CODE_COMPANY_ADMIN;
     }
 
+    public function isFinanceAdmin(): bool
+    {
+        return $this->currentRoleCode() === Role::CODE_FINANCE_ADMIN;
+    }
+
     public function isPartnerAdmin(): bool
     {
         return $this->currentRoleCode() === Role::CODE_PARTNER_ADMIN;
@@ -145,6 +150,7 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return in_array($this->currentRoleCode(), [
             Role::CODE_RESELLER_ADMIN,
+            Role::CODE_RESELLER_SALES_MANAGER,
             Role::CODE_RESELLER_SALES_CONSULTANT,
         ], true);
     }
