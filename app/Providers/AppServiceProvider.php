@@ -93,5 +93,13 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('partner-invite-accept', function (Request $request): array {
             return [Limit::perMinute(10)->by($request->ip())];
         });
+
+        RateLimiter::for('change-password', function (Request $request): array {
+            $userId = $request->user()?->id;
+
+            return [
+                Limit::perMinute(5)->by('change-password|'.($userId ?? $request->ip())),
+            ];
+        });
     }
 }

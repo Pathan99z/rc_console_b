@@ -27,6 +27,10 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use App\Events\Notifications\QuoteAccepted;
+use App\Events\Notifications\QuotePaymentSucceeded;
+use App\Events\Notifications\QuoteRejected;
+use App\Events\Notifications\QuoteSent;
 
 class QuoteService
 {
@@ -219,6 +223,8 @@ class QuoteService
         Log::info(DomainConstants::LOG_QUOTE_SENT, ['tenant_id' => $updated->tenant_id, 'quote_id' => $updated->id]);
         $this->bumpVersion((int) $updated->tenant_id);
 
+        event(new QuoteSent($updated->id, $actor->id));
+
         return $this->mustGetQuote($updated->id);
     }
 
@@ -281,7 +287,7 @@ class QuoteService
         return $this->mustGetQuoteByPublicToken($token);
     }
 
-    public function applySuccessfulPayment(int $quoteId, ?Request $request = null): void
+    public function applySuccessfulPayment(int $quoteId, ?Request $request = null, ?int $paymentRecordId = null): void
     {
         $quote = $this->mustGetQuote($quoteId);
         if ((int) $quote->payment_status === Quote::PAYMENT_STATUS_PAID) {
@@ -302,6 +308,8 @@ class QuoteService
             'quote_id' => $fresh->id,
         ]);
         $this->bumpVersion((int) $fresh->tenant_id);
+
+        event(new QuotePaymentSucceeded($fresh->id, null, $paymentRecordId));
     }
 
     public function listLayouts(): array
@@ -700,6 +708,12 @@ class QuoteService
                 'status' => $updated->statusLabel(),
             ]);
             $this->bumpVersion((int) $updated->tenant_id);
+
+            if ($targetStatus === Quote::STATUS_ACCEPTED) {
+                event(new QuoteAccepted($updated->id));
+            } elseif ($targetStatus === Quote::STATUS_REJECTED) {
+                event(new QuoteRejected($updated->id));
+            }
 
             return $this->mustGetQuote($updated->id);
         });

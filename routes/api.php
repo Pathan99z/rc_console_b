@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\AuditLogController;
+use App\Http\Controllers\Api\InAppNotificationController;
 use App\Http\Controllers\Api\CollateralController;
 use App\Http\Controllers\Api\CompanyController;
 use App\Http\Controllers\Api\ContactController;
@@ -85,7 +87,27 @@ Route::middleware(['auth:sanctum', 'tenant.context', 'organization.mail.context'
         ->name('verification.send');
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'user']);
+    Route::patch('/user/profile', [AuthController::class, 'updateProfile']);
+    Route::patch('/user/password', [AuthController::class, 'changePassword'])
+        ->middleware('throttle:change-password');
     Route::get('/navigation', [NavigationController::class, 'index']);
+
+    Route::middleware(['audit.view', 'audit.export'])->group(function (): void {
+        Route::get('/audit-logs/export', [AuditLogController::class, 'export']);
+    });
+
+    Route::middleware('audit.view')->group(function (): void {
+        Route::get('/audit-logs', [AuditLogController::class, 'index']);
+        Route::get('/audit-logs/{id}', [AuditLogController::class, 'show'])
+            ->where('id', '^(audit|dh)-[0-9]+$');
+    });
+
+    Route::middleware('notifications.view')->group(function (): void {
+        Route::get('/notifications', [InAppNotificationController::class, 'index']);
+        Route::get('/notifications/unread-count', [InAppNotificationController::class, 'unreadCount']);
+        Route::patch('/notifications/read-all', [InAppNotificationController::class, 'markAllRead']);
+        Route::patch('/notifications/{id}/read', [InAppNotificationController::class, 'markRead'])->whereNumber('id');
+    });
 
     Route::middleware('tasks.view')->group(function (): void {
         Route::get('/tasks/assignable-users', [TaskController::class, 'assignableUsers']);

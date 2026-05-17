@@ -26,6 +26,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->api(prepend: [
+            \App\Http\Middleware\CorrelationIdMiddleware::class,
+        ]);
         $middleware->alias([
             'tenant.context' => EnsureTenantContext::class,
             'organization.active' => EnsureActiveOrganizationAccess::class,
@@ -44,6 +47,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'organization.mail.context' => \App\Http\Middleware\EnsureOrganizationMailContext::class,
             'email_settings.view' => \App\Http\Middleware\EnsureEmailSettingsView::class,
             'email_settings.manage' => \App\Http\Middleware\EnsureEmailSettingsManage::class,
+            'notifications.view' => \App\Http\Middleware\EnsureNotificationsView::class,
+            'audit.view' => \App\Http\Middleware\EnsureAuditView::class,
+            'audit.export' => \App\Http\Middleware\EnsureAuditExport::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

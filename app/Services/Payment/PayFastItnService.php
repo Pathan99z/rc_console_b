@@ -4,9 +4,12 @@ namespace App\Services\Payment;
 
 use App\Models\PaymentRecord;
 use App\Models\Quote;
+use App\Events\Notifications\QuotePaymentFailed;
 use App\Repositories\PaymentRecordRepository;
+use App\Services\Audit\BusinessAuditService;
 use App\Services\Prm\CommissionAccrualService;
 use App\Services\Quote\QuoteService;
+use App\Support\Audit\BusinessAuditEventKeys;
 use App\Support\DomainConstants;
 use App\Support\Payment\PayFastPaymentStatus;
 use Illuminate\Http\Request;
@@ -22,6 +25,7 @@ class PayFastItnService
         private readonly QuoteService $quoteService,
         private readonly InvoiceService $invoiceService,
         private readonly CommissionAccrualService $commissionAccrualService,
+        private readonly BusinessAuditService $businessAuditService,
     ) {}
 
     public function handle(Request $request): Response
@@ -32,14 +36,18 @@ class PayFastItnService
 
         $recordId = isset($data['m_payment_id']) ? (int) $data['m_payment_id'] : 0;
         if ($recordId <= 0) {
-            return $this->rejectItn(DomainConstants::LOG_PAYFAST_ITN_REJECTED, 'missing_m_payment_id');
+            $this->logWebhookFailure($request, 'missing_m_payment_id', null, 0);
+
+            return $this->rejectItnBody();
         }
 
         try {
             return DB::transaction(function () use ($request, $data, $recordId): Response {
                 $record = PaymentRecord::query()->whereKey($recordId)->lockForUpdate()->first();
                 if (! $record) {
-                    return $this->rejectItn(DomainConstants::LOG_PAYFAST_ITN_REJECTED, 'record_not_found');
+                    $this->logWebhookFailure($request, 'record_not_found', null, $recordId);
+
+                    return $this->rejectItnBody();
                 }
 
                 if ($record->status === PaymentRecord::STATUS_SUCCESS) {
@@ -48,17 +56,23 @@ class PayFastItnService
 
                 $credentials = $this->payFastService->resolveCredentials((int) $record->tenant_id);
                 if (! $this->payFastService->verifySignature($data, $credentials->passphrase)) {
-                    return $this->rejectItn(DomainConstants::LOG_PAYFAST_ITN_REJECTED, 'invalid_signature');
+                    $this->logWebhookFailure($request, 'invalid_signature', $record, $recordId);
+
+                    return $this->rejectItnBody();
                 }
 
                 $paymentStatus = (string) ($data['payment_status'] ?? '');
                 $quote = Quote::query()->whereKey($record->quote_id)->lockForUpdate()->first();
                 if (! $quote || (int) $quote->tenant_id !== (int) $record->tenant_id) {
-                    return $this->rejectItn(DomainConstants::LOG_PAYFAST_ITN_REJECTED, 'quote_mismatch');
+                    $this->logWebhookFailure($request, 'quote_mismatch', $record, $recordId);
+
+                    return $this->rejectItnBody();
                 }
 
                 if (! $this->amountsMatch($record, $data)) {
-                    return $this->rejectItn(DomainConstants::LOG_PAYFAST_ITN_REJECTED, 'amount_mismatch');
+                    $this->logWebhookFailure($request, 'amount_mismatch', $record, $recordId);
+
+                    return $this->rejectItnBody();
                 }
 
                 if ($paymentStatus === PayFastPaymentStatus::COMPLETE) {
@@ -67,7 +81,7 @@ class PayFastItnService
                         'transaction_id' => (string) ($data['pf_payment_id'] ?? ''),
                         'raw_payload' => $data,
                     ]);
-                    $this->quoteService->applySuccessfulPayment((int) $quote->id, $request);
+                    $this->quoteService->applySuccessfulPayment((int) $quote->id, $request, (int) $updatedRecord->id);
                     $invoice = $this->invoiceService->createForSuccessfulPayment($quote->loadMissing('contact'), $updatedRecord);
                     Log::info(DomainConstants::LOG_INVOICE_CREATED, [
                         'tenant_id' => $quote->tenant_id,
@@ -76,6 +90,8 @@ class PayFastItnService
                     ]);
 
                     $this->commissionAccrualService->processSuccessfulPayment($quote, $updatedRecord);
+
+                    $this->logWebhookSuccess($request, $quote, $updatedRecord);
 
                     return $this->ackItn();
                 }
@@ -86,6 +102,9 @@ class PayFastItnService
                         'transaction_id' => (string) ($data['pf_payment_id'] ?? ''),
                         'raw_payload' => $data,
                     ]);
+                    event(new QuotePaymentFailed((int) $record->quote_id, $recordId));
+
+                    $this->logGatewayPaymentFailed($request, $quote, $record, $paymentStatus);
                 }
 
                 return $this->ackItn();
@@ -95,6 +114,80 @@ class PayFastItnService
 
             return response('Temporary error', 500)->header('Content-Type', 'text/plain');
         }
+    }
+
+    private function logWebhookSuccess(Request $request, Quote $quote, PaymentRecord $record): void
+    {
+        $this->businessAuditService->record(
+            BusinessAuditEventKeys::PAYMENTS_WEBHOOK_SUCCESS,
+            (int) $quote->tenant_id,
+            null,
+            'payments',
+            'webhook_success',
+            'payment_record',
+            (int) $record->id,
+            null,
+            [
+                'quote_id' => (string) $quote->id,
+                'payment_status' => 'complete',
+            ],
+            [
+                'pf_payment_id' => (string) ($record->transaction_id ?? ''),
+            ],
+            $quote->channel_organization_id !== null ? (int) $quote->channel_organization_id : null,
+            'payfast_itn',
+            $request->ip(),
+            $request->userAgent(),
+            $request
+        );
+    }
+
+    private function logGatewayPaymentFailed(Request $request, Quote $quote, PaymentRecord $record, string $paymentStatus): void
+    {
+        $this->businessAuditService->record(
+            BusinessAuditEventKeys::PAYMENTS_WEBHOOK_FAILED,
+            (int) $quote->tenant_id,
+            null,
+            'payments',
+            'webhook_gateway_failed',
+            'payment_record',
+            (int) $record->id,
+            null,
+            [
+                'quote_id' => (string) $quote->id,
+                'payment_status' => $paymentStatus,
+            ],
+            null,
+            $quote->channel_organization_id !== null ? (int) $quote->channel_organization_id : null,
+            'payfast_itn',
+            $request->ip(),
+            $request->userAgent(),
+            $request
+        );
+    }
+
+    private function logWebhookFailure(Request $request, string $reasonCode, ?PaymentRecord $record, int $recordId): void
+    {
+        Log::warning(DomainConstants::LOG_PAYFAST_ITN_REJECTED, ['reason' => $reasonCode]);
+
+        $tenantId = $record !== null ? (int) $record->tenant_id : null;
+        $this->businessAuditService->record(
+            BusinessAuditEventKeys::PAYMENTS_WEBHOOK_FAILED,
+            $tenantId,
+            null,
+            'payments',
+            'webhook_rejected',
+            'payment_record',
+            $recordId,
+            null,
+            null,
+            ['reason' => $reasonCode],
+            null,
+            'payfast_itn',
+            $request->ip(),
+            $request->userAgent(),
+            $request
+        );
     }
 
     /**
@@ -115,10 +208,8 @@ class PayFastItnService
         return response('ITN received', 200)->header('Content-Type', 'text/plain');
     }
 
-    private function rejectItn(string $logKey, string $reason): Response
+    private function rejectItnBody(): Response
     {
-        Log::warning($logKey, ['reason' => $reason]);
-
         return response('Bad request', 400)->header('Content-Type', 'text/plain');
     }
 }

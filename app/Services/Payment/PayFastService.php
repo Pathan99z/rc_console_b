@@ -5,10 +5,14 @@ namespace App\Services\Payment;
 use App\Models\Quote;
 use App\Models\TenantPaymentSetting;
 use App\Repositories\PaymentRecordRepository;
+use App\Events\Notifications\PaymentLinkInitiated;
 use App\Repositories\TenantPaymentSettingRepository;
+use App\Services\Audit\BusinessAuditService;
+use App\Support\Audit\BusinessAuditEventKeys;
 use App\Support\DomainConstants;
 use App\Support\Payment\PayFastCredentials;
 use App\Support\Payment\PayFastSignature;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
@@ -18,6 +22,7 @@ class PayFastService
         private readonly TenantPaymentSettingRepository $tenantPaymentSettingRepository,
         private readonly PaymentRecordRepository $paymentRecordRepository,
         private readonly PaymentSecretEncrypter $encrypter,
+        private readonly BusinessAuditService $businessAuditService,
     ) {
     }
 
@@ -50,7 +55,7 @@ class PayFastService
     /**
      * @return array{action_url: string, method: string, fields: array<string, string>, payment_record_id: int}
      */
-    public function generatePaymentLink(Quote $quote, ?TenantPaymentSetting $settingsRow): array
+    public function generatePaymentLink(Quote $quote, ?TenantPaymentSetting $settingsRow, ?int $initiatedByUserId = null): array
     {
         $tenantId = (int) $quote->tenant_id;
         $credentials = $this->resolveCredentials($tenantId);
@@ -89,6 +94,29 @@ class PayFastService
             'quote_id' => $quote->id,
             'payment_record_id' => $record->id,
         ]);
+
+        event(new PaymentLinkInitiated((int) $quote->id, (int) $record->id, $initiatedByUserId));
+
+        $bindRequest = app()->bound('request') ? request() : null;
+        $maybeRequest = $bindRequest instanceof Request ? $bindRequest : null;
+
+        $this->businessAuditService->record(
+            BusinessAuditEventKeys::PAYMENTS_INITIATED,
+            $tenantId,
+            $initiatedByUserId,
+            'payments',
+            'initiated',
+            'payment_record',
+            (int) $record->id,
+            null,
+            ['quote_id' => (string) $quote->id],
+            ['quote_number' => (string) $quote->quote_number, 'gateway' => 'payfast'],
+            $quote->channel_organization_id !== null ? (int) $quote->channel_organization_id : null,
+            'payments',
+            $maybeRequest?->ip(),
+            $maybeRequest?->userAgent(),
+            $maybeRequest
+        );
 
         return [
             'action_url' => $this->processUrlForMode($credentials->mode),

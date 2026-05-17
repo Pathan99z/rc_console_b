@@ -13,6 +13,8 @@ use App\Repositories\OrganizationInvitationRepository;
 use App\Repositories\OrganizationRepository;
 use App\Repositories\UserRepository;
 use App\Support\DomainConstants;
+use App\Events\Notifications\PartnerInvitationAccepted;
+use App\Events\Notifications\ResellerInvitationAccepted;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
@@ -227,6 +229,12 @@ class OrganizationInvitationService
             $this->auditPrm($user, $invitation->tenant_id, 'prm.invitation.accepted', $invitation->id, null, [
                 'user_id' => $user->id,
             ], $ipAddress, $userAgent);
+
+            if ($organization->type === Organization::TYPE_PARTNER) {
+                event(new PartnerInvitationAccepted($organization->id, $user->id));
+            } elseif ($organization->type === Organization::TYPE_RESELLER) {
+                event(new ResellerInvitationAccepted($organization->id, $user->id));
+            }
 
             if (! $autoVerifyInvitedUsers) {
                 $user->sendEmailVerificationNotification();

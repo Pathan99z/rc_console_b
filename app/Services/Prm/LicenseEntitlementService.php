@@ -7,6 +7,8 @@ use App\Models\Organization;
 use App\Models\User;
 use App\Repositories\AuditLogRepository;
 use App\Services\Auth\AccessScopeService;
+use App\Support\Audit\BusinessAuditEventKeys;
+use App\Events\Notifications\LicenseAllocated;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Validation\ValidationException;
@@ -75,7 +77,10 @@ class LicenseEntitlementService
             'after' => $row->toArray(),
             'ip_address' => $ip,
             'user_agent' => $ua,
+            'event_key' => BusinessAuditEventKeys::LICENSES_ALLOCATED,
         ]);
+
+        event(new LicenseAllocated($row->id, $actor->id));
 
         return $row;
     }

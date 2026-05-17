@@ -7,6 +7,9 @@ use App\Models\User;
 use App\Repositories\OrganizationRepository;
 use App\Support\Tasks\TaskAccessScope;
 use App\Support\Tasks\TaskStatusTransition;
+use App\Events\Notifications\TaskAssigned;
+use App\Events\Notifications\TaskCompleted;
+use App\Events\Notifications\TaskReassigned;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
@@ -59,6 +62,10 @@ class TaskManagementService
 
         $fresh = $this->loadTask($task->id);
         $this->auditLogger->log($actor, 'tasks.create', $fresh, null, $fresh->toArray(), $ip, $ua);
+
+        if ($fresh->assignee_user_id) {
+            event(new TaskAssigned($fresh->id, $actor->id));
+        }
 
         return $fresh;
     }
@@ -119,6 +126,7 @@ class TaskManagementService
         $before = $task->toArray();
 
         $assignee = $this->resolveAssignee($actor, $assigneeUserId, $task->scope_organization_id);
+        $previousAssignee = $task->assignee_user_id !== null ? (int) $task->assignee_user_id : null;
         $task->update([
             'assignee_user_id' => $assignee->id,
             'updated_by_user_id' => $actor->id,
@@ -126,6 +134,14 @@ class TaskManagementService
 
         $fresh = $this->loadTask($task->id);
         $this->auditLogger->log($actor, 'tasks.assign', $fresh, $before, $fresh->toArray(), $ip, $ua);
+
+        if ($previousAssignee !== (int) $assignee->id) {
+            if ($previousAssignee === null) {
+                event(new TaskAssigned($fresh->id, $actor->id));
+            } else {
+                event(new TaskReassigned($fresh->id, $previousAssignee, $actor->id));
+            }
+        }
 
         return $fresh;
     }
@@ -152,6 +168,8 @@ class TaskManagementService
 
             $fresh = $this->loadTask($task->id);
             $this->auditLogger->log($actor, 'tasks.complete', $fresh, $before, $fresh->toArray(), $ip, $ua);
+
+            event(new TaskCompleted($fresh->id, $actor->id));
 
             return $fresh;
         });

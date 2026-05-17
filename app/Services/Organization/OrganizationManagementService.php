@@ -9,6 +9,15 @@ use App\Repositories\AuditLogRepository;
 use App\Repositories\OrganizationRepository;
 use App\Support\Channel\ChannelContext;
 use App\Support\DomainConstants;
+use App\Events\Notifications\OrganizationCreditLimitChanged;
+use App\Events\Notifications\PartnerApproved;
+use App\Events\Notifications\PartnerOrganizationSubmittedForReview;
+use App\Events\Notifications\PartnerRejected;
+use App\Events\Notifications\PartnerSuspended;
+use App\Events\Notifications\ResellerApproved;
+use App\Events\Notifications\ResellerOrganizationSubmittedForReview;
+use App\Events\Notifications\ResellerRejected;
+use App\Events\Notifications\ResellerSuspended;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Validation\ValidationException;
@@ -63,6 +72,8 @@ class OrganizationManagementService
             $userAgent
         );
 
+        $this->notifyPendingReviewSubmission($organization);
+
         return $organization;
     }
 
@@ -94,6 +105,9 @@ class OrganizationManagementService
             $ipAddress,
             $userAgent
         );
+
+        $this->notifyOnboardingPromotionToPendingReview($before['onboarding_status'] ?? null, $updated);
+        $this->notifyCreditLimitAdjusted($before, $updated, array_key_exists('credit_limit', $payload), $actor->id);
 
         return $updated;
     }
@@ -142,6 +156,12 @@ class OrganizationManagementService
 
         $this->audit($actor, DomainConstants::LOG_ORGANIZATION_APPROVED, $updated, $before, $updated->toArray(), $ipAddress, $userAgent);
 
+        if ($organization->type === Organization::TYPE_PARTNER) {
+            event(new PartnerApproved($updated->id, $actor->id));
+        } elseif ($organization->type === Organization::TYPE_RESELLER) {
+            event(new ResellerApproved($updated->id, $actor->id));
+        }
+
         return $updated;
     }
 
@@ -165,6 +185,12 @@ class OrganizationManagementService
 
         $this->audit($actor, DomainConstants::LOG_ORGANIZATION_REJECTED, $updated, $before, $updated->toArray(), $ipAddress, $userAgent);
 
+        if ($organization->type === Organization::TYPE_PARTNER) {
+            event(new PartnerRejected($updated->id, $actor->id));
+        } elseif ($organization->type === Organization::TYPE_RESELLER) {
+            event(new ResellerRejected($updated->id, $actor->id));
+        }
+
         return $updated;
     }
 
@@ -181,6 +207,12 @@ class OrganizationManagementService
         ]);
 
         $this->audit($actor, DomainConstants::LOG_ORGANIZATION_SUSPENDED, $updated, $before, $updated->toArray(), $ipAddress, $userAgent);
+
+        if ($organization->type === Organization::TYPE_PARTNER) {
+            event(new PartnerSuspended($updated->id, $actor->id));
+        } elseif ($organization->type === Organization::TYPE_RESELLER) {
+            event(new ResellerSuspended($updated->id, $actor->id));
+        }
 
         return $updated;
     }
@@ -400,6 +432,48 @@ class OrganizationManagementService
         return (int) $actor->tenant_id;
     }
 
+    private function notifyPendingReviewSubmission(Organization $organization): void
+    {
+        if ($organization->onboarding_status !== Organization::ONBOARDING_PENDING_REVIEW) {
+            return;
+        }
+        if ($organization->type === Organization::TYPE_PARTNER) {
+            event(new PartnerOrganizationSubmittedForReview($organization->id));
+
+            return;
+        }
+        if ($organization->type === Organization::TYPE_RESELLER) {
+            event(new ResellerOrganizationSubmittedForReview($organization->id));
+        }
+    }
+
+    private function notifyOnboardingPromotionToPendingReview(?string $previous, Organization $updated): void
+    {
+        if ($updated->onboarding_status !== Organization::ONBOARDING_PENDING_REVIEW) {
+            return;
+        }
+        $prev = $previous ?? '';
+        if ($prev === Organization::ONBOARDING_PENDING_REVIEW) {
+            return;
+        }
+
+        $this->notifyPendingReviewSubmission($updated);
+    }
+
+    private function notifyCreditLimitAdjusted(array $before, Organization $updated, bool $creditTouched, int $actorUserId): void
+    {
+        if (! $creditTouched) {
+            return;
+        }
+        $previous = isset($before['credit_limit']) ? (string) $before['credit_limit'] : '';
+        $next = (string) ($updated->credit_limit ?? '');
+        if ($previous === $next) {
+            return;
+        }
+
+        event(new OrganizationCreditLimitChanged($updated->id, $actorUserId));
+    }
+
     private function audit(
         User $actor,
         string $action,
@@ -411,6 +485,7 @@ class OrganizationManagementService
     ): void {
         $this->auditLogRepository->create([
             'tenant_id' => $organization->tenant_id,
+            'organization_id' => $organization->id,
             'user_id' => $actor->id,
             'module' => 'organization',
             'action' => $action,

@@ -3,6 +3,7 @@
 namespace App\Http\Resources\Auth;
 
 use App\Models\User;
+use App\Services\Auth\AccountService;
 use App\Services\Auth\PermissionResolverService;
 use App\Support\Access\PermissionProfileResolver;
 use Illuminate\Http\Request;
@@ -16,10 +17,20 @@ class UserResource extends JsonResource
         $profileResolver = app(PermissionProfileResolver::class);
         $permissionResolver = app(PermissionResolverService::class);
         $organization = $profileResolver->organization($this->resource);
+        $orgModel = $this->organizationAssignment?->organization;
+
+        if ($orgModel !== null) {
+            $organization['display_name'] = $orgModel->display_name ?: $orgModel->legal_name;
+            $organization['legal_name'] = $orgModel->legal_name;
+        }
 
         return [
             'id' => $this->id,
             'tenant_id' => $this->tenant_id,
+            'tenant' => $this->tenant ? [
+                'id' => $this->tenant->id,
+                'name' => $this->tenant->name,
+            ] : null,
             'organization_id' => $this->primaryOrganizationId(),
             'team_id' => $this->team_id,
             'data_scope' => $this->dataScopeLabel(),
@@ -34,6 +45,7 @@ class UserResource extends JsonResource
             'name' => $this->name,
             'email' => $this->email,
             'email_verified_at' => $this->email_verified_at,
+            'last_login_at' => AccountService::resolveLastLoginAt($this->resource),
             'created_at' => $this->created_at,
         ];
     }

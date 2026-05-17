@@ -16,6 +16,11 @@ use App\Repositories\PipelineStageRepository;
 use App\Support\DomainConstants;
 use App\Support\Channel\ChannelContext;
 use App\Support\PartnerScopeResolver;
+use App\Events\Notifications\DealAssigned;
+use App\Events\Notifications\DealLost;
+use App\Events\Notifications\DealOwnerChanged;
+use App\Events\Notifications\DealStageChanged;
+use App\Events\Notifications\DealWon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Collection;
@@ -178,7 +183,12 @@ class DealManagementService
         Log::info(DomainConstants::LOG_DEAL_CREATED, ['tenant_id' => $tenantId, 'deal_id' => $deal->id]);
         $this->bumpVersion('deals', (int) $tenantId);
 
-        return $this->mustGetDeal($deal->id);
+        $fresh = $this->mustGetDeal($deal->id);
+        if ((int) $fresh->owner_user_id !== (int) $actor->id) {
+            event(new DealAssigned($fresh->id, $actor->id));
+        }
+
+        return $fresh;
     }
 
     public function getDeal(User $actor, int $dealId): Deal
@@ -196,6 +206,7 @@ class DealManagementService
         $deal = $this->getDeal($actor, $dealId);
         $this->ensureDealMutationAccess($actor, $deal);
         $tenantId = (int) $deal->tenant_id;
+        $previousOwnerUserId = (int) $deal->owner_user_id;
         $this->validateDealRelations($actor, $tenantId, $payload, $deal);
         $updatePayload = array_merge($payload, ['updated_by_user_id' => $actor->id]);
         if (isset($payload['currency_code'])) {
@@ -213,7 +224,12 @@ class DealManagementService
         Log::info(DomainConstants::LOG_DEAL_UPDATED, ['tenant_id' => $tenantId, 'deal_id' => $deal->id]);
         $this->bumpVersion('deals', $tenantId);
 
-        return $this->mustGetDeal($updated->id);
+        $freshDeal = $this->mustGetDeal($updated->id);
+        if (isset($payload['owner_user_id']) && (int) $payload['owner_user_id'] !== $previousOwnerUserId) {
+            event(new DealOwnerChanged($freshDeal->id, $previousOwnerUserId, (int) $payload['owner_user_id'], $actor->id));
+        }
+
+        return $freshDeal;
     }
 
     public function deleteDeal(User $actor, int $dealId): void
@@ -242,7 +258,10 @@ class DealManagementService
         Log::info(DomainConstants::LOG_DEAL_STAGE_MOVED, ['tenant_id' => $deal->tenant_id, 'deal_id' => $deal->id]);
         $this->bumpVersion('deals', (int) $deal->tenant_id);
 
-        return $this->mustGetDeal($updated->id);
+        $freshDeal = $this->mustGetDeal($updated->id);
+        event(new DealStageChanged($freshDeal->id, (int) $stage->id, (string) $stage->name));
+
+        return $freshDeal;
     }
 
     public function updateStatus(User $actor, int $dealId, string $status, ?string $notes): Deal
@@ -264,7 +283,15 @@ class DealManagementService
         Log::info(DomainConstants::LOG_DEAL_STATUS_CHANGED, ['tenant_id' => $deal->tenant_id, 'deal_id' => $deal->id]);
         $this->bumpVersion('deals', (int) $deal->tenant_id);
 
-        return $this->mustGetDeal($updated->id);
+        $freshDeal = $this->mustGetDeal($updated->id);
+        if ($status === 'won') {
+            event(new DealWon($freshDeal->id));
+        }
+        if ($status === 'lost') {
+            event(new DealLost($freshDeal->id, $actor->id));
+        }
+
+        return $freshDeal;
     }
 
     private function validateDealRelations(User $actor, int $tenantId, array $payload, ?Deal $currentDeal = null): void

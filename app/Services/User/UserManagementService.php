@@ -10,7 +10,12 @@ use App\Models\UserOrganizationAssignment;
 use App\Repositories\AuditLogRepository;
 use App\Repositories\RoleRepository;
 use App\Repositories\UserRepository;
+use App\Services\Audit\BusinessAuditService;
+use App\Support\Audit\BusinessAuditEventKeys;
 use App\Support\DomainConstants;
+use App\Events\Notifications\UserInvited;
+use App\Events\Notifications\UserRoleChanged;
+use App\Events\Notifications\UserAccessRevoked;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Hash;
@@ -22,6 +27,7 @@ class UserManagementService
         private readonly UserRepository $userRepository,
         private readonly RoleRepository $roleRepository,
         private readonly AuditLogRepository $auditLogRepository,
+        private readonly BusinessAuditService $businessAuditService,
     ) {}
 
     public function listUsers(int $perPage = 15): LengthAwarePaginator
@@ -62,6 +68,31 @@ class UserManagementService
             $createdUser->sendEmailVerificationNotification();
         }
 
+        event(new UserInvited($createdUser->id, $actor->id));
+
+        $inviteOrgId = $organizationId;
+        $this->businessAuditService->record(
+            BusinessAuditEventKeys::USERS_INVITED,
+            $tenantId,
+            (int) $actor->id,
+            'user',
+            'invited',
+            'user',
+            (int) $createdUser->id,
+            null,
+            [
+                'name' => $createdUser->name,
+                'email' => $createdUser->email,
+                'role' => $createdUser->role,
+            ],
+            null,
+            $inviteOrgId,
+            null,
+            null,
+            null,
+            null,
+        );
+
         return $createdUser;
     }
 
@@ -76,7 +107,31 @@ class UserManagementService
 
         $this->ensureSameTenantAccess($actor, $user);
 
-        return $this->userRepository->update($user, ['status' => User::statusCodeFromString($status)]);
+        $beforeStatus = (int) $user->status;
+
+        return tap($this->userRepository->update($user, ['status' => User::statusCodeFromString($status)]), function (User $updated) use ($beforeStatus, $actor): void {
+            if ($beforeStatus === User::STATUS_ACTIVE && (int) $updated->status !== User::STATUS_ACTIVE) {
+                event(new UserAccessRevoked($updated->id, $actor->id));
+
+                $this->businessAuditService->record(
+                    BusinessAuditEventKeys::USERS_ACCESS_REVOKED,
+                    (int) $updated->tenant_id,
+                    (int) $actor->id,
+                    'user',
+                    'access_revoked',
+                    'user',
+                    (int) $updated->id,
+                    ['status' => $beforeStatus],
+                    ['status' => (int) $updated->status],
+                    ['previous_status' => $beforeStatus, 'next_status' => (int) $updated->status],
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                );
+            }
+        });
     }
 
     public function updateUserRole(User $actor, int $userId, string $role): User
@@ -117,7 +172,10 @@ class UserManagementService
             'after' => $updated->toArray(),
             'ip_address' => null,
             'user_agent' => null,
+            'event_key' => BusinessAuditEventKeys::USERS_ROLE_CHANGED,
         ]);
+
+        event(new UserRoleChanged($updated->id, $actor->id));
 
         return $updated;
     }

@@ -6,6 +6,8 @@ use App\Models\Tenant;
 use App\Models\User;
 use App\Repositories\TenantRepository;
 use App\Repositories\UserRepository;
+use App\Services\Audit\BusinessAuditService;
+use App\Support\Audit\BusinessAuditEventKeys;
 use Illuminate\Auth\Events\Verified;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\Request;
@@ -19,6 +21,7 @@ class AuthService
     public function __construct(
         private readonly TenantRepository $tenantRepository,
         private readonly UserRepository $userRepository,
+        private readonly BusinessAuditService $businessAuditService,
     ) {
     }
 
@@ -47,29 +50,40 @@ class AuthService
         });
     }
 
-    public function login(array $payload): array
+    /**
+     * @return array{token: string, user: User}
+     */
+    public function login(array $payload, Request $request): array
     {
         $user = $this->userRepository->findByEmail(strtolower($payload['email']));
 
         if (! $user || ! Hash::check($payload['password'], $user->password)) {
+            $this->logLoginFailure($user, 'invalid_credentials', $request);
+
             throw ValidationException::withMessages([
                 'email' => ['Invalid credentials.'],
             ]);
         }
 
         if (! $user->isActive()) {
+            $this->logLoginFailure($user, 'inactive_user', $request);
+
             throw ValidationException::withMessages([
                 'email' => ['Your account is inactive. Please contact your administrator.'],
             ]);
         }
 
         if ($user->tenant && $user->tenant->status !== Tenant::STATUS_ACTIVE) {
+            $this->logLoginFailure($user, 'tenant_suspended', $request);
+
             throw ValidationException::withMessages([
                 'email' => ['Your tenant is currently suspended. Please contact support.'],
             ]);
         }
 
         if (! $user->hasVerifiedEmail()) {
+            $this->logLoginFailure($user, 'email_unverified', $request);
+
             throw ValidationException::withMessages([
                 'email' => ['Please verify your email address before logging in.'],
             ]);
@@ -78,10 +92,49 @@ class AuthService
         $deviceName = $payload['device_name'] ?? 'web';
         $token = $user->createToken($deviceName)->plainTextToken;
 
+        $this->businessAuditService->record(
+            BusinessAuditEventKeys::AUTH_LOGIN_SUCCESS,
+            (int) $user->tenant_id,
+            (int) $user->id,
+            'auth',
+            'login_success',
+            'user',
+            (int) $user->id,
+            null,
+            ['email' => $user->email],
+            null,
+            null,
+            'http',
+            $request->ip(),
+            $request->userAgent(),
+            $request
+        );
+
         return [
             'token' => $token,
             'user' => $user,
         ];
+    }
+
+    private function logLoginFailure(?User $user, string $reasonCode, Request $request): void
+    {
+        $this->businessAuditService->record(
+            BusinessAuditEventKeys::AUTH_LOGIN_FAILURE,
+            $user?->tenant_id !== null ? (int) $user->tenant_id : null,
+            null,
+            'auth',
+            'login_failed',
+            'user',
+            $user !== null ? (int) $user->id : 0,
+            null,
+            ['reason' => $reasonCode],
+            ['email_attempt' => strtolower((string) $request->input('email'))],
+            null,
+            'http',
+            $request->ip(),
+            $request->userAgent(),
+            $request
+        );
     }
 
     public function logout(User $user): void
@@ -111,24 +164,66 @@ class AuthService
         if (! $user->hasVerifiedEmail()) {
             $user->markEmailAsVerified();
             event(new Verified($user));
+
+            $this->businessAuditService->record(
+                BusinessAuditEventKeys::AUTH_EMAIL_VERIFIED,
+                (int) $user->tenant_id,
+                (int) $user->id,
+                'auth',
+                'email_verified',
+                'user',
+                (int) $user->id,
+                null,
+                ['email' => $user->email],
+                null,
+                null,
+                'http',
+                $request->ip(),
+                $request->userAgent(),
+                $request
+            );
         }
 
         return $user;
     }
 
-    public function sendResetLink(string $email): void
+    public function sendResetLink(string $email, Request $request): void
     {
-        $status = Password::sendResetLink(['email' => strtolower($email)]);
+        $normalized = strtolower($email);
+        $status = Password::sendResetLink(['email' => $normalized]);
 
         if ($status !== Password::RESET_LINK_SENT) {
             throw ValidationException::withMessages([
                 'email' => [__($status)],
             ]);
         }
+
+        $user = $this->userRepository->findByEmail($normalized);
+        if ($user) {
+            $this->businessAuditService->record(
+                BusinessAuditEventKeys::AUTH_PASSWORD_RESET_REQUESTED,
+                (int) $user->tenant_id,
+                (int) $user->id,
+                'auth',
+                'password_reset_requested',
+                'user',
+                (int) $user->id,
+                null,
+                null,
+                null,
+                null,
+                'http',
+                $request->ip(),
+                $request->userAgent(),
+                $request
+            );
+        }
     }
 
-    public function resetPassword(array $payload): void
+    public function resetPassword(array $payload, Request $request): void
     {
+        $svc = $this->businessAuditService;
+
         $status = Password::reset(
             [
                 'email' => strtolower($payload['email']),
@@ -136,12 +231,30 @@ class AuthService
                 'password_confirmation' => $payload['password_confirmation'],
                 'token' => $payload['token'],
             ],
-            function (User $user, string $password): void {
+            function (User $user, string $password) use ($svc, $request): void {
                 $user->forceFill([
                     'password' => Hash::make($password),
                 ])->save();
 
                 $user->tokens()->delete();
+
+                $svc->record(
+                    BusinessAuditEventKeys::AUTH_PASSWORD_RESET_COMPLETED,
+                    (int) $user->tenant_id,
+                    (int) $user->id,
+                    'auth',
+                    'password_reset_completed',
+                    'user',
+                    (int) $user->id,
+                    null,
+                    null,
+                    null,
+                    null,
+                    'http',
+                    $request->ip(),
+                    $request->userAgent(),
+                    $request
+                );
             }
         );
 

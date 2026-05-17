@@ -50,6 +50,13 @@ class PermissionProfileResolver
             'tasks.manage',
         ];
 
+        $inAppNotifications = [
+            'notifications.view',
+        ];
+        $auditEnterprise = [
+            'audit.view',
+            'audit.export',
+        ];
         $demoLinksFull = [
             'demo_links.view',
             'demo_links.manage',
@@ -94,7 +101,7 @@ class PermissionProfileResolver
                 'prm.resources.view',
                 'prm.partner.dashboard.view',
                 'prm.resellers.manage',
-            ], $payoutFinance, $tasksFull, $demoLinksFull, $emailSettingsAdmin),
+            ], $payoutFinance, $tasksFull, $inAppNotifications, $demoLinksFull, $emailSettingsAdmin, $auditEnterprise),
             Role::CODE_COMPANY_ADMIN => array_merge([
                 'users.manage',
                 'teams.manage',
@@ -114,14 +121,14 @@ class PermissionProfileResolver
                 'prm.resources.view',
                 'prm.partner.dashboard.view',
                 'prm.resellers.manage',
-            ], $payoutFinance, $tasksFull, $demoLinksFull, $emailSettingsAdmin),
+            ], $payoutFinance, $tasksFull, $inAppNotifications, $demoLinksFull, $emailSettingsAdmin, $auditEnterprise),
             Role::CODE_FINANCE_ADMIN => array_merge([
                 'payments.view',
                 'invoices.view',
                 'organizations.dashboard.view',
                 'prm.commissions.manage',
                 'prm.commissions.view',
-            ], $payoutFinance, $tasksFull, $demoLinksFull, $emailSettingsAdmin),
+            ], $payoutFinance, $tasksFull, $inAppNotifications, $demoLinksFull, $emailSettingsAdmin),
             Role::CODE_PARTNER_ADMIN => array_merge([
                 'contacts.view',
                 'companies.view',
@@ -143,7 +150,7 @@ class PermissionProfileResolver
                 'prm.resellers.manage',
                 'prm.payouts.view',
                 'prm.payout.accounts.manage',
-            ], $tasksChannelAssign, $demoLinksChannelShare, $emailSettingsAdmin),
+            ], $tasksChannelAssign, $inAppNotifications, $demoLinksChannelShare, $emailSettingsAdmin),
             Role::CODE_PARTNER_SALES_MANAGER => array_merge([
                 'contacts.view',
                 'companies.view',
@@ -160,7 +167,7 @@ class PermissionProfileResolver
                 'prm.commissions.view',
                 'prm.licenses.view',
                 'prm.partner.dashboard.view',
-            ], $tasksChannelAssign, $demoLinksChannelShare),
+            ], $tasksChannelAssign, $inAppNotifications, $demoLinksChannelShare),
             Role::CODE_PARTNER_SALES_CONSULTANT => array_merge([
                 'contacts.view',
                 'companies.view',
@@ -177,7 +184,7 @@ class PermissionProfileResolver
                 'prm.commissions.view',
                 'prm.licenses.view',
                 'prm.partner.dashboard.view',
-            ], $tasksChannelLimited, $demoLinksChannelLimited),
+            ], $tasksChannelLimited, $inAppNotifications, $demoLinksChannelLimited),
             Role::CODE_RESELLER_ADMIN => array_merge([
                 'contacts.view',
                 'companies.view',
@@ -199,7 +206,7 @@ class PermissionProfileResolver
                 'organization.users.manage',
                 'prm.payouts.view',
                 'prm.payout.accounts.manage',
-            ], $tasksChannelAssign, $demoLinksChannelShare, $emailSettingsAdmin),
+            ], $tasksChannelAssign, $inAppNotifications, $demoLinksChannelShare, $emailSettingsAdmin),
             Role::CODE_RESELLER_SALES_MANAGER => array_merge([
                 'contacts.view',
                 'companies.view',
@@ -217,7 +224,7 @@ class PermissionProfileResolver
                 'prm.licenses.view',
                 'prm.licenses.consume',
                 'prm.partner.dashboard.view',
-            ], $tasksChannelAssign, $demoLinksChannelShare),
+            ], $tasksChannelAssign, $inAppNotifications, $demoLinksChannelShare),
             Role::CODE_RESELLER_SALES_CONSULTANT => array_merge([
                 'contacts.view',
                 'companies.view',
@@ -229,7 +236,7 @@ class PermissionProfileResolver
                 'prm.opportunities.manage',
                 'prm.resources.view',
                 'prm.partner.dashboard.view',
-            ], $tasksChannelLimited, $demoLinksChannelLimited),
+            ], $tasksChannelLimited, $inAppNotifications, $demoLinksChannelLimited),
             default => array_merge([
                 'contacts.view',
                 'companies.view',

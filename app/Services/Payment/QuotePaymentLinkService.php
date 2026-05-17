@@ -140,7 +140,8 @@ class QuotePaymentLinkService
 
         return $this->payFastService->generatePaymentLink(
             $quote,
-            $this->tenantPaymentSettingRepository->findByTenantId((int) $quote->tenant_id)
+            $this->tenantPaymentSettingRepository->findByTenantId((int) $quote->tenant_id),
+            $user->id,
         );
     }
 

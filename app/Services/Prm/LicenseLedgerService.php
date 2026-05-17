@@ -10,8 +10,11 @@ use App\Models\User;
 use App\Repositories\AuditLogRepository;
 use App\Repositories\OrganizationRepository;
 use App\Services\Auth\AccessScopeService;
+use App\Support\Audit\BusinessAuditEventKeys;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use App\Events\Notifications\LicenseAllocated;
+use App\Events\Notifications\LicenseActivatedEvent;
 
 class LicenseLedgerService
 {
@@ -88,6 +91,8 @@ class LicenseLedgerService
                 'units' => $units,
             ], $ip, $ua);
 
+            event(new LicenseAllocated($child->id, $actor->id));
+
             return $child->load(['holderOrganization', 'product']);
         });
     }
@@ -142,6 +147,8 @@ class LicenseLedgerService
                 'units' => $units,
             ], $ip, $ua);
 
+            event(new LicenseActivatedEvent($row->id, $actor->id, $units, $activation->id));
+
             return $activation->load(['entitlement']);
         });
     }
@@ -179,6 +186,11 @@ class LicenseLedgerService
             'after' => $after,
             'ip_address' => $ip,
             'user_agent' => $ua,
+            'event_key' => match ($action) {
+                'prm.license.transferred' => BusinessAuditEventKeys::LICENSES_TRANSFERRED,
+                'prm.license.activated' => BusinessAuditEventKeys::LICENSES_ACTIVATED,
+                default => null,
+            },
         ]);
     }
 }

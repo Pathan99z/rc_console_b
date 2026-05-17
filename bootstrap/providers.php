@@ -1,9 +1,11 @@
 <?php
 
 use App\Providers\AppServiceProvider;
+use App\Providers\NotificationServiceProvider;
 use App\Providers\OrganizationMailServiceProvider;
 
 return [
     OrganizationMailServiceProvider::class,
+    NotificationServiceProvider::class,
     AppServiceProvider::class,
 ];

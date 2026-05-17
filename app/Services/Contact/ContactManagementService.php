@@ -8,8 +8,12 @@ use App\Models\User;
 use App\Repositories\CompanyRepository;
 use App\Repositories\ContactActivityRepository;
 use App\Repositories\ContactRepository;
+use App\Services\Audit\BusinessAuditService;
+use App\Support\Audit\BusinessAuditEventKeys;
 use App\Support\Channel\ChannelContext;
 use App\Support\DomainConstants;
+use App\Events\Notifications\ContactAssigned;
+use App\Events\Notifications\ContactReassigned;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\UploadedFile;
@@ -25,6 +29,7 @@ class ContactManagementService
         private readonly ContactRepository $contactRepository,
         private readonly ContactActivityRepository $activityRepository,
         private readonly ChannelContext $channelContext,
+        private readonly BusinessAuditService $businessAuditService,
     ) {
     }
 
@@ -46,7 +51,26 @@ class ContactManagementService
         $company = $this->companyRepository->create($payload);
         $this->bumpVersion('companies', (int) $payload['tenant_id']);
 
-        return $this->companyRepository->findById($company->id) ?? $company;
+        $fresh = $this->companyRepository->findById($company->id) ?? $company;
+        $this->businessAuditService->record(
+            BusinessAuditEventKeys::COMPANIES_CREATED,
+            (int) $fresh->tenant_id,
+            (int) $actor->id,
+            'company',
+            'created',
+            'company',
+            (int) $fresh->id,
+            null,
+            $fresh->toArray(),
+            null,
+            $fresh->channel_organization_id !== null ? (int) $fresh->channel_organization_id : null,
+            null,
+            null,
+            null,
+            null,
+        );
+
+        return $fresh;
     }
 
     public function updateCompany(User $actor, int $companyId, array $payload): Company
@@ -58,10 +82,30 @@ class ContactManagementService
 
         $this->guardCompanyAssignee((int) $company->tenant_id, $payload['assigned_user_id'] ?? null);
         $this->ensureUniqueCompanyEmail((int) $company->tenant_id, $payload['email'] ?? null, $company->id);
+        $before = $company->toArray();
         $updated = $this->companyRepository->update($company, $payload);
         $this->bumpVersion('companies', (int) $company->tenant_id);
 
-        return $this->companyRepository->findById($updated->id) ?? $updated;
+        $fresh = $this->companyRepository->findById($updated->id) ?? $updated;
+        $this->businessAuditService->record(
+            BusinessAuditEventKeys::COMPANIES_UPDATED,
+            (int) $fresh->tenant_id,
+            (int) $actor->id,
+            'company',
+            'updated',
+            'company',
+            (int) $fresh->id,
+            $before,
+            $fresh->toArray(),
+            null,
+            $fresh->channel_organization_id !== null ? (int) $fresh->channel_organization_id : null,
+            null,
+            null,
+            null,
+            null,
+        );
+
+        return $fresh;
     }
 
     public function getCompany(User $actor, int $companyId): Company
@@ -80,6 +124,28 @@ class ContactManagementService
         if (! $company || ! $this->canAccessCompany($actor, (int) $company->tenant_id)) {
             throw new ModelNotFoundException(DomainConstants::MSG_COMPANY_NOT_FOUND);
         }
+
+        $beforeDelete = $company->toArray();
+        $tid = (int) $company->tenant_id;
+        $this->businessAuditService->record(
+            BusinessAuditEventKeys::COMPANIES_DELETED,
+            $tid,
+            (int) $actor->id,
+            'company',
+            'deleted',
+            'company',
+            (int) $company->id,
+            $beforeDelete,
+            null,
+            null,
+            isset($company->channel_organization_id) && $company->channel_organization_id !== null
+                ? (int) $company->channel_organization_id
+                : null,
+            null,
+            null,
+            null,
+            null,
+        );
 
         $company->delete();
         $this->bumpVersion('companies', (int) $company->tenant_id);
@@ -106,7 +172,63 @@ class ContactManagementService
         $contact = $this->contactRepository->create($payload);
         $this->bumpVersion('contacts', (int) $payload['tenant_id']);
 
-        return $this->mustGetContact($contact->id);
+        $fresh = $this->mustGetContact($contact->id);
+        if (
+            $fresh->assigned_user_id !== null
+            && (int) $fresh->assigned_user_id !== (int) $actor->id
+        ) {
+            event(new ContactAssigned(
+                (int) $fresh->tenant_id,
+                (int) $fresh->id,
+                (int) $fresh->assigned_user_id,
+                $actor->id,
+            ));
+        }
+
+        $orgId = $fresh->channel_organization_id !== null ? (int) $fresh->channel_organization_id : null;
+
+        $this->businessAuditService->record(
+            BusinessAuditEventKeys::CONTACTS_CREATED,
+            (int) $fresh->tenant_id,
+            (int) $actor->id,
+            'contact',
+            'created',
+            'contact',
+            (int) $fresh->id,
+            null,
+            $fresh->toArray(),
+            null,
+            $orgId,
+            null,
+            null,
+            null,
+            null,
+        );
+
+        if (
+            $fresh->assigned_user_id !== null
+            && (int) $fresh->assigned_user_id !== (int) $actor->id
+        ) {
+            $this->businessAuditService->record(
+                BusinessAuditEventKeys::CONTACTS_ASSIGNED,
+                (int) $fresh->tenant_id,
+                (int) $actor->id,
+                'contact',
+                'assigned',
+                'contact',
+                (int) $fresh->id,
+                null,
+                ['assigned_user_id' => $fresh->assigned_user_id],
+                null,
+                $orgId,
+                null,
+                null,
+                null,
+                null,
+            );
+        }
+
+        return $fresh;
     }
 
     public function getContact(User $actor, int $id): Contact
@@ -126,16 +248,146 @@ class ContactManagementService
         $this->guardTenantForeigns($actor, $payload);
         $this->ensureUniqueContactEmail((int) $contact->tenant_id, $payload['email'] ?? null, $contact->id);
         $payload['updated_by_user_id'] = $actor->id;
+        $before = $contact->toArray();
+        $previousAssignee = $contact->assigned_user_id !== null ? (int) $contact->assigned_user_id : null;
+        $stageBefore = (int) ($contact->lifecycle_stage ?? Contact::STAGE_LEAD);
 
         $updated = $this->contactRepository->update($contact, $payload);
         $this->bumpVersion('contacts', (int) $contact->tenant_id);
 
-        return $this->mustGetContact($updated->id);
+        $fresh = $this->mustGetContact($updated->id);
+        $newAssignee = $fresh->assigned_user_id !== null ? (int) $fresh->assigned_user_id : null;
+        $stageAfter = (int) ($fresh->lifecycle_stage ?? Contact::STAGE_LEAD);
+
+        $orgId = $fresh->channel_organization_id !== null ? (int) $fresh->channel_organization_id : null;
+
+        if ($stageAfter === Contact::STAGE_CUSTOMER && $stageBefore !== Contact::STAGE_CUSTOMER) {
+            $this->businessAuditService->record(
+                BusinessAuditEventKeys::CONTACTS_CONVERTED,
+                (int) $fresh->tenant_id,
+                (int) $actor->id,
+                'contact',
+                'converted',
+                'contact',
+                (int) $fresh->id,
+                ['lifecycle_stage' => $stageBefore],
+                ['lifecycle_stage' => $stageAfter],
+                null,
+                $orgId,
+                null,
+                null,
+                null,
+                null,
+            );
+        }
+
+        $assignPayloadTouched = array_key_exists('assigned_user_id', $payload);
+        if ($assignPayloadTouched && $newAssignee !== null && $newAssignee !== (int) $actor->id) {
+            if ($previousAssignee === null) {
+                event(new ContactAssigned(
+                    (int) $fresh->tenant_id,
+                    (int) $fresh->id,
+                    $newAssignee,
+                    $actor->id,
+                ));
+
+                $this->businessAuditService->record(
+                    BusinessAuditEventKeys::CONTACTS_ASSIGNED,
+                    (int) $fresh->tenant_id,
+                    (int) $actor->id,
+                    'contact',
+                    'assigned',
+                    'contact',
+                    (int) $fresh->id,
+                    ['assigned_user_id' => $previousAssignee],
+                    ['assigned_user_id' => $newAssignee],
+                    null,
+                    $orgId,
+                    null,
+                    null,
+                    null,
+                    null,
+                );
+            } elseif ($previousAssignee !== $newAssignee) {
+                event(new ContactReassigned(
+                    (int) $fresh->tenant_id,
+                    (int) $fresh->id,
+                    $newAssignee,
+                    $actor->id,
+                ));
+
+                $this->businessAuditService->record(
+                    BusinessAuditEventKeys::CONTACTS_REASSIGNED,
+                    (int) $fresh->tenant_id,
+                    (int) $actor->id,
+                    'contact',
+                    'reassigned',
+                    'contact',
+                    (int) $fresh->id,
+                    ['assigned_user_id' => $previousAssignee],
+                    ['assigned_user_id' => $newAssignee],
+                    null,
+                    $orgId,
+                    null,
+                    null,
+                    null,
+                    null,
+                );
+            }
+        }
+
+        $meaningful = array_values(array_diff(array_keys($payload), ['updated_by_user_id']));
+        sort($meaningful);
+        $isAssignOnly = $meaningful === ['assigned_user_id'];
+        $isCustomerConversionOnly = $stageAfter === Contact::STAGE_CUSTOMER
+            && $stageBefore !== Contact::STAGE_CUSTOMER
+            && $meaningful === ['lifecycle_stage'];
+
+        if ($meaningful !== [] && ! $isAssignOnly && ! $isCustomerConversionOnly) {
+            $this->businessAuditService->record(
+                BusinessAuditEventKeys::CONTACTS_UPDATED,
+                (int) $fresh->tenant_id,
+                (int) $actor->id,
+                'contact',
+                'updated',
+                'contact',
+                (int) $fresh->id,
+                $before,
+                $fresh->toArray(),
+                null,
+                $orgId,
+                null,
+                null,
+                null,
+                null,
+            );
+        }
+
+        return $fresh;
     }
 
     public function deleteContact(User $actor, int $id): void
     {
         $contact = $this->getContact($actor, $id);
+
+        $this->businessAuditService->record(
+            BusinessAuditEventKeys::CONTACTS_DELETED,
+            (int) $contact->tenant_id,
+            (int) $actor->id,
+            'contact',
+            'deleted',
+            'contact',
+            (int) $contact->id,
+            $contact->toArray(),
+            null,
+            null,
+            $contact->channel_organization_id !== null ? (int) $contact->channel_organization_id : null,
+            null,
+            null,
+            null,
+            null,
+        );
+
         $this->contactRepository->delete($contact);
         $this->bumpVersion('contacts', (int) $contact->tenant_id);
     }

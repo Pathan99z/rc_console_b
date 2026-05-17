@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Auth\ChangePasswordRequest;
 use App\Http\Requests\Auth\ForgotPasswordRequest;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Requests\Auth\ResetPasswordRequest;
+use App\Http\Requests\Auth\UpdateProfileRequest;
 use App\Http\Resources\Auth\UserResource;
 use App\Http\Responses\ApiResponse;
+use App\Services\Auth\AccountService;
 use App\Services\Auth\AuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,8 +22,10 @@ class AuthController extends Controller
 {
     use ApiResponse;
 
-    public function __construct(private readonly AuthService $authService)
-    {
+    public function __construct(
+        private readonly AuthService $authService,
+        private readonly AccountService $accountService,
+    ) {
     }
 
     public function register(RegisterRequest $request): JsonResponse
@@ -36,7 +41,7 @@ class AuthController extends Controller
 
     public function login(LoginRequest $request): JsonResponse
     {
-        $result = $this->authService->login($request->validated());
+        $result = $this->authService->login($request->validated(), $request);
 
         return $this->successResponse('Login successful.', [
             'token' => $result['token'],
@@ -88,14 +93,14 @@ class AuthController extends Controller
 
     public function forgotPassword(ForgotPasswordRequest $request): JsonResponse
     {
-        $this->authService->sendResetLink($request->validated('email'));
+        $this->authService->sendResetLink($request->validated('email'), $request);
 
         return $this->successResponse('Password reset link sent.');
     }
 
     public function resetPassword(ResetPasswordRequest $request): JsonResponse
     {
-        $this->authService->resetPassword($request->validated());
+        $this->authService->resetPassword($request->validated(), $request);
 
         return $this->successResponse('Password reset successful.');
     }
@@ -109,8 +114,37 @@ class AuthController extends Controller
 
     public function user(Request $request): JsonResponse
     {
+        $user = $request->user();
+        $user->loadMissing(['tenant', 'roleModel', 'organizationAssignment.organization']);
+
         return $this->successResponse('Authenticated user fetched successfully.', [
-            'user' => new UserResource($request->user()),
+            'user' => new UserResource($user),
         ]);
+    }
+
+    public function updateProfile(UpdateProfileRequest $request): JsonResponse
+    {
+        $user = $this->accountService->updateProfile(
+            $request->user(),
+            (string) $request->validated('name'),
+            $request
+        );
+
+        return $this->successResponse('Profile updated successfully.', [
+            'user' => new UserResource($user),
+        ]);
+    }
+
+    public function changePassword(ChangePasswordRequest $request): JsonResponse
+    {
+        $validated = $request->validated();
+        $this->accountService->changePassword(
+            $request->user(),
+            (string) $validated['current_password'],
+            (string) $validated['password'],
+            $request
+        );
+
+        return $this->successResponse('Password changed successfully.');
     }
 }
