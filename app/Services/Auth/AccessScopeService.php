@@ -80,12 +80,16 @@ class AccessScopeService
 
     /**
      * Applies channel org visibility with legacy partner_organization_id fallback on the same table.
+     *
+     * @param  bool  $allowLegacyPartnerColumn  When false, CRM list APIs ignore partner_organization_id-only
+     *                                           rows (prevents company-owned records leaking via deal links).
      */
     public function applyChannelOrganizationScope(
         Builder $query,
         User $actor,
         string $channelColumn = 'channel_organization_id',
         ?string $legacyPartnerColumn = 'partner_organization_id',
+        bool $allowLegacyPartnerColumn = true,
     ): void {
         if ($actor->isGlobalAdmin() || $actor->isCompanyAdmin()) {
             return;
@@ -98,9 +102,9 @@ class AccessScopeService
             return;
         }
 
-        $query->where(function (Builder $inner) use ($orgIds, $channelColumn, $legacyPartnerColumn): void {
+        $query->where(function (Builder $inner) use ($orgIds, $channelColumn, $legacyPartnerColumn, $allowLegacyPartnerColumn): void {
             $inner->whereIn($channelColumn, $orgIds);
-            if ($legacyPartnerColumn !== null) {
+            if ($allowLegacyPartnerColumn && $legacyPartnerColumn !== null) {
                 $inner->orWhere(function (Builder $legacy) use ($orgIds, $channelColumn, $legacyPartnerColumn): void {
                     $legacy->whereNull($channelColumn)->whereIn($legacyPartnerColumn, $orgIds);
                 });

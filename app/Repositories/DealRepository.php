@@ -71,7 +71,11 @@ class DealRepository
         $query->where(function (Builder $inner) use ($actor): void {
             $this->accessScopeService->applyOwnerTeamScope($inner, $actor, 'owner_user_id');
             $inner->orWhere(function (Builder $channelQ) use ($actor): void {
-                $this->accessScopeService->applyChannelOrganizationScope($channelQ, $actor);
+                $this->accessScopeService->applyChannelOrganizationScope(
+                    $channelQ,
+                    $actor,
+                    allowLegacyPartnerColumn: false,
+                );
             });
         });
     }

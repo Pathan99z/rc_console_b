@@ -99,26 +99,12 @@ class ContactRepository
         $channelOrgIds = $this->accessScopeService->visibleChannelOrgIds($actor);
 
         $query->where(function (Builder $inner) use ($actor, $channelOrgIds): void {
+            // Own, team, or assigned by company admin / partner (assigned_user_id / created_by_user_id).
             $this->accessScopeService->applyOwnerTeamScope($inner, $actor, 'assigned_user_id', 'created_by_user_id');
 
             if ($channelOrgIds !== []) {
+                // Channel-stamped CRM rows (partner/reseller created under their org).
                 $inner->orWhereIn('channel_organization_id', $channelOrgIds);
-                $inner->orWhere(function (Builder $legacy) use ($actor, $channelOrgIds): void {
-                    $legacy->whereNull('channel_organization_id')
-                        ->whereIn('id', function ($sub) use ($actor, $channelOrgIds): void {
-                            $sub->from('deals')
-                                ->select('contact_id')
-                                ->where('tenant_id', $actor->tenant_id)
-                                ->whereNotNull('contact_id')
-                                ->where(function ($dealScope) use ($channelOrgIds): void {
-                                    $dealScope->whereIn('channel_organization_id', $channelOrgIds)
-                                        ->orWhere(function ($legacyDeal) use ($channelOrgIds): void {
-                                            $legacyDeal->whereNull('channel_organization_id')
-                                                ->whereIn('partner_organization_id', $channelOrgIds);
-                                        });
-                                });
-                        });
-                });
             }
         });
     }

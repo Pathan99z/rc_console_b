@@ -405,11 +405,9 @@ class DealManagementService
         }
 
         $channelIds = $this->partnerScopeResolver->visibleChannelOrganizationIds($actor);
-        if ($deal->partner_organization_id && in_array((int) $deal->partner_organization_id, $channelIds, true)) {
-            return true;
-        }
 
-        return false;
+        return $deal->channel_organization_id !== null
+            && in_array((int) $deal->channel_organization_id, $channelIds, true);
     }
 
     private function mustGetDeal(int $dealId): Deal

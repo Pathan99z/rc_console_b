@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\CompanyController;
 use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\DealController;
 use App\Http\Controllers\Api\InvoiceController;
+use App\Http\Controllers\Api\LoginDashboardController;
 use App\Http\Controllers\Api\NavigationController;
 use App\Http\Controllers\Api\OrganizationController;
 use App\Http\Controllers\Api\OrganizationDashboardController;
@@ -91,6 +92,7 @@ Route::middleware(['auth:sanctum', 'tenant.context', 'organization.mail.context'
     Route::patch('/user/password', [AuthController::class, 'changePassword'])
         ->middleware('throttle:change-password');
     Route::get('/navigation', [NavigationController::class, 'index']);
+    Route::get('/dashboard', [LoginDashboardController::class, 'index']);
 
     Route::middleware(['audit.view', 'audit.export'])->group(function (): void {
         Route::get('/audit-logs/export', [AuditLogController::class, 'export']);

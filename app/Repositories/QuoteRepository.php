@@ -106,15 +106,7 @@ class QuoteRepository
 
             if ($channelOrgIds !== []) {
                 $inner->orWhereIn('channel_organization_id', $channelOrgIds);
-                $inner->orWhereHas('deal', function (Builder $dealQ) use ($channelOrgIds): void {
-                    $dealQ->where(function (Builder $scope) use ($channelOrgIds): void {
-                        $scope->whereIn('channel_organization_id', $channelOrgIds)
-                            ->orWhere(function (Builder $legacy) use ($channelOrgIds): void {
-                                $legacy->whereNull('channel_organization_id')
-                                    ->whereIn('partner_organization_id', $channelOrgIds);
-                            });
-                    });
-                });
+                $inner->orWhereHas('deal', fn (Builder $dealQ) => $dealQ->whereIn('channel_organization_id', $channelOrgIds));
             }
         });
     }

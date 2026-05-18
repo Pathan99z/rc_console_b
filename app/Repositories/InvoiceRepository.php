@@ -38,15 +38,7 @@ class InvoiceRepository
 
                 if ($channelOrgIds !== []) {
                     $inner->orWhereHas('quote', fn ($q) => $q->whereIn('channel_organization_id', $channelOrgIds));
-                    $inner->orWhereHas('quote.deal', function ($dealQ) use ($channelOrgIds): void {
-                        $dealQ->where(function ($scope) use ($channelOrgIds): void {
-                            $scope->whereIn('channel_organization_id', $channelOrgIds)
-                                ->orWhere(function ($legacy) use ($channelOrgIds): void {
-                                    $legacy->whereNull('channel_organization_id')
-                                        ->whereIn('partner_organization_id', $channelOrgIds);
-                                });
-                        });
-                    });
+                    $inner->orWhereHas('quote.deal', fn ($dealQ) => $dealQ->whereIn('channel_organization_id', $channelOrgIds));
                 }
             });
         }
@@ -68,15 +60,7 @@ class InvoiceRepository
 
                 if ($channelOrgIds !== []) {
                     $inner->orWhereHas('quote', fn ($q) => $q->whereIn('channel_organization_id', $channelOrgIds));
-                    $inner->orWhereHas('quote.deal', function ($dealQ) use ($channelOrgIds): void {
-                        $dealQ->where(function ($scope) use ($channelOrgIds): void {
-                            $scope->whereIn('channel_organization_id', $channelOrgIds)
-                                ->orWhere(function ($legacy) use ($channelOrgIds): void {
-                                    $legacy->whereNull('channel_organization_id')
-                                        ->whereIn('partner_organization_id', $channelOrgIds);
-                                });
-                        });
-                    });
+                    $inner->orWhereHas('quote.deal', fn ($dealQ) => $dealQ->whereIn('channel_organization_id', $channelOrgIds));
                 }
             });
         }

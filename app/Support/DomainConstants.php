@@ -320,6 +320,8 @@ class DomainConstants
 
     public const MSG_PRM_PARTNER_DASHBOARD = 'Partner dashboard loaded.';
 
+    public const MSG_LOGIN_DASHBOARD = 'Login dashboard loaded successfully.';
+
     public const MSG_ORGANIZATION_DASHBOARD_FETCHED = 'Organization dashboard fetched successfully.';
 
     public const MSG_PRM_RESELLER_DASHBOARD = 'Reseller dashboard loaded.';
