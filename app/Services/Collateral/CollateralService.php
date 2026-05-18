@@ -14,10 +14,11 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Cache;
+use App\Services\Cache\CacheInvalidationService;
+use App\Support\Cache\TenantListCache;
+use App\Support\Mail\EnterpriseMailDispatcher;
+use App\Support\Storage\EnterpriseStorage;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -26,15 +27,25 @@ class CollateralService
     public function __construct(
         private readonly CollateralRepository $collateralRepository,
         private readonly AuditLogRepository $auditLogRepository,
+        private readonly TenantListCache $tenantListCache,
+        private readonly CacheInvalidationService $cacheInvalidation,
+        private readonly EnterpriseMailDispatcher $mailDispatcher,
+        private readonly EnterpriseStorage $storage,
     ) {
     }
 
     public function listCollaterals(User $actor, array $filters, int $perPage): LengthAwarePaginator
     {
         $tenantId = $actor->isGlobalAdmin() ? ($filters['tenant_id'] ?? null) : $actor->tenant_id;
-        $key = $this->buildCacheKey($tenantId, $filters, $perPage);
-
-        return Cache::remember($key, now()->addMinutes(10), fn () => $this->collateralRepository->paginateFiltered($actor, $filters, $perPage));
+        return $this->tenantListCache->remember(
+            $actor,
+            'collaterals',
+            $tenantId,
+            $filters,
+            $perPage,
+            (int) config('enterprise_cache.ttl.list_collaterals', 600),
+            fn () => $this->collateralRepository->paginateFiltered($actor, $filters, $perPage),
+        );
     }
 
     public function upload(User $actor, array $payload, UploadedFile $file, Request $request): Collateral
@@ -44,8 +55,7 @@ class CollateralService
 
         $fileName = $this->buildStoredFileName($file);
         $fileKey = "tenant/{$tenantId}/collaterals/{$fileName}";
-        $disk = $this->storageDisk();
-        Storage::disk($disk)->put($fileKey, $file->getContent(), ['visibility' => 'private']);
+        $this->storage->putPrivate($fileKey, $file->getContent(), EnterpriseStorage::PURPOSE_COLLATERAL);
 
         $collateral = $this->collateralRepository->create([
             'tenant_id' => $tenantId,
@@ -61,7 +71,7 @@ class CollateralService
 
         $this->recordAudit($actor, $request, 'uploaded', $collateral, null, $collateral->toArray());
         Log::info(DomainConstants::LOG_COLLATERAL_UPLOADED, ['tenant_id' => $tenantId, 'collateral_id' => $collateral->id]);
-        $this->bumpVersion($tenantId);
+        $this->cacheInvalidation->afterCollateralMutation($tenantId);
 
         return $this->mustGetCollateral($collateral->id);
     }
@@ -89,11 +99,11 @@ class CollateralService
         }
 
         $before = $collateral->toArray();
-        Storage::disk($this->storageDisk())->delete($collateral->file_key);
+        $this->storage->delete($collateral->file_key, EnterpriseStorage::PURPOSE_COLLATERAL);
         $this->collateralRepository->delete($collateral);
         $this->recordAudit($actor, $request, 'deleted', $collateral, $before, null);
         Log::info(DomainConstants::LOG_COLLATERAL_DELETED, ['tenant_id' => $collateral->tenant_id, 'collateral_id' => $collateral->id]);
-        $this->bumpVersion((int) $collateral->tenant_id);
+        $this->cacheInvalidation->afterCollateralMutation((int) $collateral->tenant_id);
     }
 
     public function send(User $actor, int $collateralId, array $payload, Request $request): void
@@ -107,7 +117,7 @@ class CollateralService
         $signedUrl = $this->generateSignedUrl($collateral->file_key);
         $productName = $collateral->product?->name ?? 'Product';
 
-        Mail::to($recipientEmail)->send(new CollateralSharedMail(
+        $this->mailDispatcher->send($recipientEmail, new CollateralSharedMail(
             productName: $productName,
             collateralName: $collateral->name,
             signedUrl: $signedUrl,
@@ -199,20 +209,11 @@ class CollateralService
 
     private function generateSignedUrl(string $fileKey): string
     {
-        /** @var \Illuminate\Filesystem\FilesystemAdapter $disk */
-        $disk = Storage::disk($this->storageDisk());
-        $expiresAt = now()->addMinutes((int) env('COLLATERAL_SIGNED_URL_MINUTES', 10));
-
-        try {
-            return $disk->temporaryUrl($fileKey, $expiresAt);
-        } catch (\Throwable) {
-            return $disk->url($fileKey);
-        }
-    }
-
-    private function storageDisk(): string
-    {
-        return (string) env('COLLATERAL_STORAGE_DISK', 's3');
+        return $this->storage->signedUrl(
+            $fileKey,
+            (int) config('enterprise_storage.collateral_signed_url_minutes', 10),
+            EnterpriseStorage::PURPOSE_COLLATERAL
+        );
     }
 
     private function recordAudit(User $actor, Request $request, string $action, Collateral $collateral, ?array $before, ?array $after): void
@@ -231,21 +232,4 @@ class CollateralService
         ]);
     }
 
-    private function buildCacheKey(?int $tenantId, array $filters, int $perPage): string
-    {
-        $version = Cache::get($this->versionKey($tenantId), 1);
-
-        return "collaterals:tenant:{$tenantId}:v:{$version}:p:{$perPage}:f:".md5(json_encode($filters));
-    }
-
-    private function bumpVersion(?int $tenantId): void
-    {
-        Cache::add($this->versionKey($tenantId), 1, now()->addDays(30));
-        Cache::increment($this->versionKey($tenantId));
-    }
-
-    private function versionKey(?int $tenantId): string
-    {
-        return "collaterals:tenant:{$tenantId}:version";
-    }
 }

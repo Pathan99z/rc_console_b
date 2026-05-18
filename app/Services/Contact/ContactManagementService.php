@@ -18,9 +18,10 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\ValidationException;
-use Illuminate\Support\Facades\Cache;
+use App\Services\Cache\CacheInvalidationService;
+use App\Support\Cache\TenantListCache;
+use App\Support\Storage\EnterpriseStorage;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 
 class ContactManagementService
 {
@@ -30,15 +31,24 @@ class ContactManagementService
         private readonly ContactActivityRepository $activityRepository,
         private readonly ChannelContext $channelContext,
         private readonly BusinessAuditService $businessAuditService,
+        private readonly TenantListCache $tenantListCache,
+        private readonly CacheInvalidationService $cacheInvalidation,
+        private readonly EnterpriseStorage $storage,
     ) {
     }
 
     public function listCompanies(User $actor, array $filters, int $perPage): LengthAwarePaginator
     {
         $tenantId = $actor->isGlobalAdmin() ? (isset($filters['tenant_id']) ? (int) $filters['tenant_id'] : null) : $actor->tenant_id;
-        $key = $this->buildCacheKey('companies', $tenantId, $filters, $perPage);
-
-        return Cache::remember($key, now()->addMinutes(10), fn () => $this->companyRepository->paginateFiltered($actor, $filters, $perPage));
+        return $this->tenantListCache->remember(
+            $actor,
+            'companies',
+            $tenantId,
+            $filters,
+            $perPage,
+            (int) config('enterprise_cache.ttl.list_companies', 600),
+            fn () => $this->companyRepository->paginateFiltered($actor, $filters, $perPage),
+        );
     }
 
     public function createCompany(User $actor, array $payload): Company
@@ -49,9 +59,12 @@ class ContactManagementService
         $this->guardCompanyAssignee($payload['tenant_id'], $payload['assigned_user_id'] ?? null);
         $this->ensureUniqueCompanyEmail((int) $payload['tenant_id'], $payload['email'] ?? null);
         $company = $this->companyRepository->create($payload);
-        $this->bumpVersion('companies', (int) $payload['tenant_id']);
 
         $fresh = $this->companyRepository->findById($company->id) ?? $company;
+        $this->cacheInvalidation->afterCrmMutation(
+            (int) $payload['tenant_id'],
+            $fresh->channel_organization_id !== null ? (int) $fresh->channel_organization_id : null
+        );
         $this->businessAuditService->record(
             BusinessAuditEventKeys::COMPANIES_CREATED,
             (int) $fresh->tenant_id,
@@ -84,9 +97,11 @@ class ContactManagementService
         $this->ensureUniqueCompanyEmail((int) $company->tenant_id, $payload['email'] ?? null, $company->id);
         $before = $company->toArray();
         $updated = $this->companyRepository->update($company, $payload);
-        $this->bumpVersion('companies', (int) $company->tenant_id);
-
         $fresh = $this->companyRepository->findById($updated->id) ?? $updated;
+        $this->cacheInvalidation->afterCrmMutation(
+            (int) $company->tenant_id,
+            $fresh->channel_organization_id !== null ? (int) $fresh->channel_organization_id : null
+        );
         $this->businessAuditService->record(
             BusinessAuditEventKeys::COMPANIES_UPDATED,
             (int) $fresh->tenant_id,
@@ -147,16 +162,23 @@ class ContactManagementService
             null,
         );
 
+        $channelOrgId = $company->channel_organization_id !== null ? (int) $company->channel_organization_id : null;
         $company->delete();
-        $this->bumpVersion('companies', (int) $company->tenant_id);
+        $this->cacheInvalidation->afterCrmMutation($tid, $channelOrgId);
     }
 
     public function listContacts(User $actor, array $filters, int $perPage): LengthAwarePaginator
     {
         $tenantId = $actor->isGlobalAdmin() ? (isset($filters['tenant_id']) ? (int) $filters['tenant_id'] : null) : $actor->tenant_id;
-        $key = $this->buildCacheKey('contacts', $tenantId, $filters, $perPage);
-
-        return Cache::remember($key, now()->addMinutes(5), fn () => $this->contactRepository->paginateFiltered($actor, $filters, $perPage));
+        return $this->tenantListCache->remember(
+            $actor,
+            'contacts',
+            $tenantId,
+            $filters,
+            $perPage,
+            (int) config('enterprise_cache.ttl.list_contacts', 300),
+            fn () => $this->contactRepository->paginateFiltered($actor, $filters, $perPage),
+        );
     }
 
     public function createContact(User $actor, array $payload): Contact
@@ -170,9 +192,11 @@ class ContactManagementService
         $this->guardTenantForeigns($actor, $payload);
 
         $contact = $this->contactRepository->create($payload);
-        $this->bumpVersion('contacts', (int) $payload['tenant_id']);
-
         $fresh = $this->mustGetContact($contact->id);
+        $this->cacheInvalidation->afterCrmMutation(
+            (int) $payload['tenant_id'],
+            $fresh->channel_organization_id !== null ? (int) $fresh->channel_organization_id : null
+        );
         if (
             $fresh->assigned_user_id !== null
             && (int) $fresh->assigned_user_id !== (int) $actor->id
@@ -253,9 +277,12 @@ class ContactManagementService
         $stageBefore = (int) ($contact->lifecycle_stage ?? Contact::STAGE_LEAD);
 
         $updated = $this->contactRepository->update($contact, $payload);
-        $this->bumpVersion('contacts', (int) $contact->tenant_id);
 
         $fresh = $this->mustGetContact($updated->id);
+        $this->cacheInvalidation->afterCrmMutation(
+            (int) $contact->tenant_id,
+            $fresh->channel_organization_id !== null ? (int) $fresh->channel_organization_id : null
+        );
         $newAssignee = $fresh->assigned_user_id !== null ? (int) $fresh->assigned_user_id : null;
         $stageAfter = (int) ($fresh->lifecycle_stage ?? Contact::STAGE_LEAD);
 
@@ -388,8 +415,9 @@ class ContactManagementService
             null,
         );
 
+        $channelOrgId = $contact->channel_organization_id !== null ? (int) $contact->channel_organization_id : null;
         $this->contactRepository->delete($contact);
-        $this->bumpVersion('contacts', (int) $contact->tenant_id);
+        $this->cacheInvalidation->afterCrmMutation((int) $contact->tenant_id, $channelOrgId);
     }
 
     public function addActivity(User $actor, int $contactId, array $payload): Contact
@@ -405,7 +433,10 @@ class ContactManagementService
             'occurred_at' => $payload['occurred_at'] ?? now(),
         ]);
 
-        $this->bumpVersion('contacts', (int) $contact->tenant_id);
+        $this->cacheInvalidation->afterCrmMutation(
+            (int) $contact->tenant_id,
+            $contact->channel_organization_id !== null ? (int) $contact->channel_organization_id : null
+        );
 
         return $this->mustGetContact($contact->id);
     }
@@ -425,8 +456,8 @@ class ContactManagementService
         $tenantId = $this->resolveTenantId($actor, ['tenant_id' => $tenantId]);
         Log::info(DomainConstants::LOG_CONTACT_IMPORT_STARTED, ['tenant_id' => $tenantId, 'user_id' => $actor->id]);
 
-        $path = Storage::disk(config('filesystems.default'))->putFile('contact-imports', $file);
-        $content = Storage::disk(config('filesystems.default'))->get($path);
+        $path = $this->storage->putFile('contact-imports', $file, EnterpriseStorage::PURPOSE_IMPORT);
+        $content = $this->storage->get($path, EnterpriseStorage::PURPOSE_IMPORT);
         $rows = preg_split("/\r\n|\n|\r/", trim($content)) ?: [];
         if ($rows === []) {
             return ['created' => 0, 'skipped' => 0];
@@ -469,8 +500,8 @@ class ContactManagementService
         $tenantId = $this->resolveTenantId($actor, ['tenant_id' => $tenantId]);
         Log::info(DomainConstants::LOG_COMPANY_IMPORT_STARTED, ['tenant_id' => $tenantId, 'user_id' => $actor->id]);
 
-        $path = Storage::disk(config('filesystems.default'))->putFile('company-imports', $file);
-        $content = Storage::disk(config('filesystems.default'))->get($path);
+        $path = $this->storage->putFile('company-imports', $file, EnterpriseStorage::PURPOSE_IMPORT);
+        $content = $this->storage->get($path, EnterpriseStorage::PURPOSE_IMPORT);
         $rows = preg_split("/\r\n|\n|\r/", trim($content)) ?: [];
         if ($rows === []) {
             return ['created' => 0, 'skipped' => 0];
@@ -659,24 +690,6 @@ class ContactManagementService
         }
 
         return $row;
-    }
-
-    private function buildCacheKey(string $module, ?int $tenantId, array $filters, int $perPage): string
-    {
-        $version = Cache::get($this->versionKey($module, $tenantId), 1);
-
-        return "{$module}:tenant:{$tenantId}:v:{$version}:p:{$perPage}:f:".md5(json_encode($filters));
-    }
-
-    private function bumpVersion(string $module, ?int $tenantId): void
-    {
-        Cache::add($this->versionKey($module, $tenantId), 1, now()->addDays(30));
-        Cache::increment($this->versionKey($module, $tenantId));
-    }
-
-    private function versionKey(string $module, ?int $tenantId): string
-    {
-        return "{$module}:tenant:{$tenantId}:version";
     }
 
     private function resolveTenantId(User $actor, array $payload): ?int

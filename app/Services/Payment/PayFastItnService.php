@@ -8,6 +8,7 @@ use App\Events\Notifications\QuotePaymentFailed;
 use App\Repositories\PaymentRecordRepository;
 use App\Services\Audit\BusinessAuditService;
 use App\Services\Prm\CommissionAccrualService;
+use App\Services\Cache\CacheInvalidationService;
 use App\Services\Quote\QuoteService;
 use App\Support\Audit\BusinessAuditEventKeys;
 use App\Support\DomainConstants;
@@ -26,6 +27,7 @@ class PayFastItnService
         private readonly InvoiceService $invoiceService,
         private readonly CommissionAccrualService $commissionAccrualService,
         private readonly BusinessAuditService $businessAuditService,
+        private readonly CacheInvalidationService $cacheInvalidation,
     ) {}
 
     public function handle(Request $request): Response
@@ -103,6 +105,10 @@ class PayFastItnService
                         'raw_payload' => $data,
                     ]);
                     event(new QuotePaymentFailed((int) $record->quote_id, $recordId));
+                    $this->cacheInvalidation->afterPaymentMutation(
+                        (int) $quote->tenant_id,
+                        $quote->channel_organization_id !== null ? (int) $quote->channel_organization_id : null
+                    );
 
                     $this->logGatewayPaymentFailed($request, $quote, $record, $paymentStatus);
                 }

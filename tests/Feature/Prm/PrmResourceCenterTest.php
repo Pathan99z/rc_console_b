@@ -13,15 +13,17 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
+use Tests\Concerns\ConfiguresEnterpriseStorage;
 use Tests\TestCase;
 
 class PrmResourceCenterTest extends TestCase
 {
+    use ConfiguresEnterpriseStorage;
     use RefreshDatabase;
 
     public function test_company_admin_can_manage_prm_resources_and_analytics(): void
     {
-        Storage::fake('public');
+        $this->fakeEnterpriseStorage('local');
         [$tenant, $companyAdmin, $partnerOrg, $product] = $this->tenantAdminPartnerProduct();
 
         Sanctum::actingAs($companyAdmin);
@@ -117,7 +119,7 @@ class PrmResourceCenterTest extends TestCase
 
     public function test_partner_lists_filters_and_download_with_audit(): void
     {
-        Storage::fake('public');
+        $this->fakeEnterpriseStorage('local');
         [$tenant, $companyAdmin, $partnerOrg, $product] = $this->tenantAdminPartnerProduct();
 
         $visible = Collateral::query()->create([
@@ -137,7 +139,7 @@ class PrmResourceCenterTest extends TestCase
             'status' => Collateral::STATUS_ACTIVE,
             'metadata' => null,
         ]);
-        Storage::disk('public')->put($visible->file_key, 'pdf');
+        Storage::disk('local')->put($visible->file_key, 'pdf');
 
         $hiddenInactive = Collateral::query()->create([
             'tenant_id' => $tenant->id,
@@ -156,7 +158,7 @@ class PrmResourceCenterTest extends TestCase
             'status' => Collateral::STATUS_INACTIVE,
             'metadata' => null,
         ]);
-        Storage::disk('public')->put($hiddenInactive->file_key, 'pdf');
+        Storage::disk('local')->put($hiddenInactive->file_key, 'pdf');
 
         $partnerUser = User::query()->create([
             'tenant_id' => $tenant->id,
@@ -206,7 +208,7 @@ class PrmResourceCenterTest extends TestCase
 
     public function test_reseller_sees_reseller_visible_resources(): void
     {
-        Storage::fake('public');
+        $this->fakeEnterpriseStorage('local');
         [$tenant, $companyAdmin, , $product] = $this->tenantAdminPartnerProduct();
 
         $rootId = (int) Organization::query()->where('tenant_id', $tenant->id)->where('type', Organization::TYPE_COMPANY)->value('id');
@@ -240,7 +242,7 @@ class PrmResourceCenterTest extends TestCase
             'status' => Collateral::STATUS_ACTIVE,
             'metadata' => null,
         ]);
-        Storage::disk('public')->put($onlyReseller->file_key, 'x');
+        Storage::disk('local')->put($onlyReseller->file_key, 'x');
 
         $resellerUser = User::query()->create([
             'tenant_id' => $tenant->id,
@@ -266,7 +268,7 @@ class PrmResourceCenterTest extends TestCase
 
     public function test_partner_cannot_manage_admin_resources(): void
     {
-        Storage::fake('public');
+        $this->fakeEnterpriseStorage('local');
         [$tenant, , $partnerOrg, $product] = $this->tenantAdminPartnerProduct();
 
         $partnerUser = User::query()->create([

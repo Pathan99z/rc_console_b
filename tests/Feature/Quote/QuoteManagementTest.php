@@ -13,10 +13,12 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
+use Tests\Concerns\ConfiguresEnterpriseStorage;
 use Tests\TestCase;
 
 class QuoteManagementTest extends TestCase
 {
+    use ConfiguresEnterpriseStorage;
     use RefreshDatabase;
 
     public function test_quote_creation_auto_creates_deal_and_syncs_value(): void
@@ -88,8 +90,7 @@ class QuoteManagementTest extends TestCase
     {
         [$tenant, $admin] = $this->createContext();
         Sanctum::actingAs($admin);
-        Storage::fake('local');
-        config(['filesystems.default' => 'local']);
+        $this->fakeEnterpriseStorage('local');
         $contactId = (int) $this->postJson('/api/contacts', ['first_name' => 'Attach', 'email' => 'quote-attach@example.com'])
             ->assertCreated()->json('data.contact.id');
         $pipelineId = (int) $this->postJson('/api/pipelines', ['name' => 'Sales'])->assertCreated()->json('data.pipeline.id');

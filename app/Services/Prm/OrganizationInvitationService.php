@@ -18,7 +18,7 @@ use App\Events\Notifications\ResellerInvitationAccepted;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Mail;
+use App\Support\Mail\EnterpriseMailDispatcher;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -29,6 +29,7 @@ class OrganizationInvitationService
         private readonly OrganizationRepository $organizationRepository,
         private readonly UserRepository $userRepository,
         private readonly AuditLogRepository $auditLogRepository,
+        private readonly EnterpriseMailDispatcher $mailDispatcher,
     ) {}
 
     public function listInvitations(User $actor, int $organizationId, int $perPage): LengthAwarePaginator
@@ -282,7 +283,7 @@ class OrganizationInvitationService
         $acceptUrl = $base.(str_contains($base, '?') ? '&' : '?').'token='.urlencode($plainToken);
         $label = $roleCode === Role::CODE_RESELLER_ADMIN ? 'Reseller administrator' : 'Partner administrator';
 
-        Mail::to($invitation->email)->send(new PartnerInvitationMail(
+        $this->mailDispatcher->send($invitation->email, new PartnerInvitationMail(
             (string) $invitation->organization?->display_name,
             $acceptUrl,
             $label,

@@ -15,10 +15,12 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
+use Tests\Concerns\ConfiguresEnterpriseStorage;
 use Tests\TestCase;
 
 class DemoLinkManagementFullUatTest extends TestCase
 {
+    use ConfiguresEnterpriseStorage;
     use RefreshDatabase;
 
     public function test_company_admin_crud_and_encryption(): void
@@ -232,7 +234,7 @@ class DemoLinkManagementFullUatTest extends TestCase
 
     public function test_screenshot_upload_and_status_check(): void
     {
-        Storage::fake('local');
+        $this->fakeEnterpriseStorage('local');
         Http::fake([
             'https://live.example.com' => Http::response('', 200),
         ]);

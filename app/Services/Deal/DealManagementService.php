@@ -24,7 +24,8 @@ use App\Events\Notifications\DealWon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Cache;
+use App\Services\Cache\CacheInvalidationService;
+use App\Support\Cache\TenantListCache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
@@ -37,17 +38,21 @@ class DealManagementService
         private readonly DealHistoryRepository $dealHistoryRepository,
         private readonly PartnerScopeResolver $partnerScopeResolver,
         private readonly ChannelContext $channelContext,
+        private readonly TenantListCache $tenantListCache,
+        private readonly CacheInvalidationService $cacheInvalidation,
     ) {}
 
     public function listPipelines(User $actor, array $filters, int $perPage): LengthAwarePaginator
     {
         $tenantId = $actor->isGlobalAdmin() ? ($filters['tenant_id'] ?? null) : $actor->tenant_id;
-        $key = $this->buildCacheKey('pipelines', $tenantId, $filters, $perPage);
-
-        return Cache::remember(
-            $key,
-            now()->addMinutes(15),
-            fn () => $this->pipelineRepository->paginateFiltered($actor, $filters, $perPage)
+        return $this->tenantListCache->remember(
+            $actor,
+            'pipelines',
+            $tenantId,
+            $filters,
+            $perPage,
+            (int) config('enterprise_cache.ttl.list_pipelines', 900),
+            fn () => $this->pipelineRepository->paginateFiltered($actor, $filters, $perPage),
         );
     }
 
@@ -60,7 +65,7 @@ class DealManagementService
             'name' => $payload['name'],
             'status' => (int) ($payload['status'] ?? Pipeline::STATUS_ACTIVE),
         ]);
-        $this->bumpVersion('pipelines', $tenantId);
+        $this->cacheInvalidation->afterPipelineMutation($tenantId);
 
         return $this->pipelineRepository->findById($pipeline->id) ?? $pipeline;
     }
@@ -70,8 +75,7 @@ class DealManagementService
         $pipeline = $this->mustGetPipeline($pipelineId);
         $this->ensureTenantAccess($actor, (int) $pipeline->tenant_id, DomainConstants::MSG_PIPELINE_NOT_FOUND);
         $updated = $this->pipelineRepository->update($pipeline, $payload);
-        $this->bumpVersion('pipelines', (int) $pipeline->tenant_id);
-        $this->bumpVersion('deals', (int) $pipeline->tenant_id);
+        $this->cacheInvalidation->afterPipelineMutation((int) $pipeline->tenant_id);
 
         return $this->pipelineRepository->findById($updated->id) ?? $updated;
     }
@@ -81,8 +85,7 @@ class DealManagementService
         $pipeline = $this->mustGetPipeline($pipelineId);
         $this->ensureTenantAccess($actor, (int) $pipeline->tenant_id, DomainConstants::MSG_PIPELINE_NOT_FOUND);
         $pipeline->delete();
-        $this->bumpVersion('pipelines', (int) $pipeline->tenant_id);
-        $this->bumpVersion('deals', (int) $pipeline->tenant_id);
+        $this->cacheInvalidation->afterPipelineMutation((int) $pipeline->tenant_id);
     }
 
     public function listStages(User $actor, int $pipelineId): Collection
@@ -104,8 +107,7 @@ class DealManagementService
             'stage_order' => (int) $payload['stage_order'],
             'status' => (int) ($payload['status'] ?? PipelineStage::STATUS_ACTIVE),
         ]);
-        $this->bumpVersion('pipelines', (int) $pipeline->tenant_id);
-        $this->bumpVersion('deals', (int) $pipeline->tenant_id);
+        $this->cacheInvalidation->afterPipelineMutation((int) $pipeline->tenant_id);
 
         return $stage;
     }
@@ -117,8 +119,7 @@ class DealManagementService
         $stage = $this->mustGetStage($stageId);
         $this->ensureStageInPipeline($stage, $pipeline);
         $updated = $this->pipelineStageRepository->update($stage, $payload);
-        $this->bumpVersion('pipelines', (int) $pipeline->tenant_id);
-        $this->bumpVersion('deals', (int) $pipeline->tenant_id);
+        $this->cacheInvalidation->afterPipelineMutation((int) $pipeline->tenant_id);
 
         return $updated;
     }
@@ -130,16 +131,21 @@ class DealManagementService
         $stage = $this->mustGetStage($stageId);
         $this->ensureStageInPipeline($stage, $pipeline);
         $stage->delete();
-        $this->bumpVersion('pipelines', (int) $pipeline->tenant_id);
-        $this->bumpVersion('deals', (int) $pipeline->tenant_id);
+        $this->cacheInvalidation->afterPipelineMutation((int) $pipeline->tenant_id);
     }
 
     public function listDeals(User $actor, array $filters, int $perPage): LengthAwarePaginator
     {
         $tenantId = $actor->isGlobalAdmin() ? ($filters['tenant_id'] ?? null) : $actor->tenant_id;
-        $key = $this->buildCacheKey('deals', $tenantId, $filters, $perPage);
-
-        return Cache::remember($key, now()->addMinutes(10), fn () => $this->dealRepository->paginateFiltered($actor, $filters, $perPage));
+        return $this->tenantListCache->remember(
+            $actor,
+            'deals',
+            $tenantId,
+            $filters,
+            $perPage,
+            (int) config('enterprise_cache.ttl.list_deals', 600),
+            fn () => $this->dealRepository->paginateFiltered($actor, $filters, $perPage),
+        );
     }
 
     public function createDeal(User $actor, array $payload): Deal
@@ -181,7 +187,7 @@ class DealManagementService
 
         $this->recordHistory((int) $tenantId, $deal->id, $actor->id, 'created', null, $deal->statusLabel(), 'Deal created');
         Log::info(DomainConstants::LOG_DEAL_CREATED, ['tenant_id' => $tenantId, 'deal_id' => $deal->id]);
-        $this->bumpVersion('deals', (int) $tenantId);
+        $this->cacheInvalidation->afterDealMutation($tenantId, $channelOrgId !== null ? (int) $channelOrgId : null);
 
         $fresh = $this->mustGetDeal($deal->id);
         if ((int) $fresh->owner_user_id !== (int) $actor->id) {
@@ -222,9 +228,12 @@ class DealManagementService
         }
 
         Log::info(DomainConstants::LOG_DEAL_UPDATED, ['tenant_id' => $tenantId, 'deal_id' => $deal->id]);
-        $this->bumpVersion('deals', $tenantId);
 
         $freshDeal = $this->mustGetDeal($updated->id);
+        $this->cacheInvalidation->afterDealMutation(
+            $tenantId,
+            $freshDeal->channel_organization_id !== null ? (int) $freshDeal->channel_organization_id : null
+        );
         if (isset($payload['owner_user_id']) && (int) $payload['owner_user_id'] !== $previousOwnerUserId) {
             event(new DealOwnerChanged($freshDeal->id, $previousOwnerUserId, (int) $payload['owner_user_id'], $actor->id));
         }
@@ -236,8 +245,9 @@ class DealManagementService
     {
         $deal = $this->getDeal($actor, $dealId);
         $this->ensureDealMutationAccess($actor, $deal);
+        $channelOrgId = $deal->channel_organization_id !== null ? (int) $deal->channel_organization_id : null;
         $this->dealRepository->delete($deal);
-        $this->bumpVersion('deals', (int) $deal->tenant_id);
+        $this->cacheInvalidation->afterDealMutation((int) $deal->tenant_id, $channelOrgId);
     }
 
     public function moveStage(User $actor, int $dealId, int $stageId, ?string $notes): Deal
@@ -256,9 +266,12 @@ class DealManagementService
         ]);
         $this->recordHistory((int) $deal->tenant_id, $deal->id, $actor->id, 'stage_moved', $previousStageId, (string) $stage->id, $notes);
         Log::info(DomainConstants::LOG_DEAL_STAGE_MOVED, ['tenant_id' => $deal->tenant_id, 'deal_id' => $deal->id]);
-        $this->bumpVersion('deals', (int) $deal->tenant_id);
 
         $freshDeal = $this->mustGetDeal($updated->id);
+        $this->cacheInvalidation->afterDealMutation(
+            (int) $deal->tenant_id,
+            $freshDeal->channel_organization_id !== null ? (int) $freshDeal->channel_organization_id : null
+        );
         event(new DealStageChanged($freshDeal->id, (int) $stage->id, (string) $stage->name));
 
         return $freshDeal;
@@ -281,9 +294,12 @@ class DealManagementService
         ]);
         $this->recordHistory((int) $deal->tenant_id, $deal->id, $actor->id, 'status_changed', $fromStatus, $status, $notes);
         Log::info(DomainConstants::LOG_DEAL_STATUS_CHANGED, ['tenant_id' => $deal->tenant_id, 'deal_id' => $deal->id]);
-        $this->bumpVersion('deals', (int) $deal->tenant_id);
 
         $freshDeal = $this->mustGetDeal($updated->id);
+        $this->cacheInvalidation->afterDealMutation(
+            (int) $deal->tenant_id,
+            $freshDeal->channel_organization_id !== null ? (int) $freshDeal->channel_organization_id : null
+        );
         if ($status === 'won') {
             event(new DealWon($freshDeal->id));
         }
@@ -473,21 +489,4 @@ class DealManagementService
         return (int) $payload['tenant_id'];
     }
 
-    private function buildCacheKey(string $module, ?int $tenantId, array $filters, int $perPage): string
-    {
-        $version = Cache::get($this->versionKey($module, $tenantId), 1);
-
-        return "{$module}:tenant:{$tenantId}:v:{$version}:p:{$perPage}:f:".md5(json_encode($filters));
-    }
-
-    private function bumpVersion(string $module, ?int $tenantId): void
-    {
-        Cache::add($this->versionKey($module, $tenantId), 1, now()->addDays(30));
-        Cache::increment($this->versionKey($module, $tenantId));
-    }
-
-    private function versionKey(string $module, ?int $tenantId): string
-    {
-        return "{$module}:tenant:{$tenantId}:version";
-    }
 }

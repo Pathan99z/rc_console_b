@@ -4,11 +4,13 @@ namespace App\Services\Notifications;
 
 use App\Models\InAppNotification;
 use App\Models\User;
+use App\Support\Cache\NotificationCountCache;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 
 class InAppNotificationService
 {
+    public function __construct(private readonly NotificationCountCache $notificationCountCache) {}
     /**
      * @param  array<string, mixed>  $filters
      */
@@ -44,11 +46,11 @@ class InAppNotificationService
 
     public function unreadCountForUser(User $user): int
     {
-        return InAppNotification::query()
+        return $this->notificationCountCache->remember($user, fn () => InAppNotification::query()
             ->where('tenant_id', (int) $user->tenant_id)
             ->where('recipient_user_id', $user->id)
             ->where('is_read', false)
-            ->count();
+            ->count());
     }
 
     /**
@@ -61,7 +63,10 @@ class InAppNotificationService
             $payload['tenant_id'] = $recipient->tenant_id;
         }
 
-        return InAppNotification::query()->create($payload);
+        $row = InAppNotification::query()->create($payload);
+        $this->notificationCountCache->invalidate($recipient);
+
+        return $row;
     }
 
     public function markRead(User $authenticatedUser, int $notificationId): ?InAppNotification
@@ -78,6 +83,7 @@ class InAppNotificationService
                 'is_read' => true,
                 'read_at' => Carbon::now(),
             ]);
+            $this->notificationCountCache->invalidate($authenticatedUser);
         }
 
         return $row->fresh();
@@ -85,7 +91,7 @@ class InAppNotificationService
 
     public function markAllRead(User $authenticatedUser): int
     {
-        return InAppNotification::query()
+        $updated = InAppNotification::query()
             ->where('tenant_id', (int) $authenticatedUser->tenant_id)
             ->where('recipient_user_id', $authenticatedUser->id)
             ->where('is_read', false)
@@ -93,6 +99,11 @@ class InAppNotificationService
                 'is_read' => true,
                 'read_at' => Carbon::now(),
             ]);
+        if ($updated > 0) {
+            $this->notificationCountCache->invalidate($authenticatedUser);
+        }
+
+        return $updated;
     }
 
     /**

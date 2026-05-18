@@ -20,15 +20,17 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
+use Tests\Concerns\ConfiguresEnterpriseStorage;
 use Tests\TestCase;
 
 class PayoutSettlementFullUatTest extends TestCase
 {
+    use ConfiguresEnterpriseStorage;
     use RefreshDatabase;
 
     public function test_full_payout_lifecycle_for_direct_reseller(): void
     {
-        Storage::fake('local');
+        $this->fakeEnterpriseStorage('local');
         $ctx = $this->seedResellerWithApprovedCommission();
         Sanctum::actingAs($ctx['admin']);
 

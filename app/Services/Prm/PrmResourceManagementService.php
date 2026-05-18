@@ -12,9 +12,9 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Cache;
+use App\Services\Cache\CacheInvalidationService;
+use App\Support\Storage\EnterpriseStorage;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -23,7 +23,11 @@ use Illuminate\Validation\ValidationException;
  */
 class PrmResourceManagementService
 {
-    public function __construct(private readonly AuditLogRepository $auditLogRepository) {}
+    public function __construct(
+        private readonly AuditLogRepository $auditLogRepository,
+        private readonly CacheInvalidationService $cacheInvalidation,
+        private readonly EnterpriseStorage $storage,
+    ) {}
 
     public function listForAdmin(User $actor, array $filters, int $perPage): LengthAwarePaginator
     {
@@ -108,7 +112,7 @@ class PrmResourceManagementService
 
         $this->auditPrm($actor, $request, 'prm.resource.created', $collateral, null, $collateral->fresh()?->toArray());
         Log::info('prm.resource.created', ['tenant_id' => $tenantId, 'collateral_id' => $collateral->id]);
-        $this->bumpVersion($tenantId);
+        $this->cacheInvalidation->afterCollateralMutation($tenantId);
 
         return $this->showForAdmin($actor, $collateral->id, $validated);
     }
@@ -157,7 +161,7 @@ class PrmResourceManagementService
         }
 
         if ($file instanceof UploadedFile) {
-            Storage::disk($this->storageDisk())->delete($collateral->file_key);
+            $this->storage->delete($collateral->file_key, EnterpriseStorage::PURPOSE_COLLATERAL);
             $updates['file_key'] = $this->storeUploadedFile($tenantId, $file);
             $updates['file_type'] = (string) ($file->getMimeType() ?? $file->getClientMimeType() ?? 'application/octet-stream');
             $updates['file_size'] = (int) $file->getSize();
@@ -167,7 +171,7 @@ class PrmResourceManagementService
         $fresh = $collateral->fresh();
         $this->auditPrm($actor, $request, 'prm.resource.updated', $fresh, $before, $fresh?->toArray());
         Log::info('prm.resource.updated', ['tenant_id' => $tenantId, 'collateral_id' => $collateralId]);
-        $this->bumpVersion($tenantId);
+        $this->cacheInvalidation->afterCollateralMutation($tenantId);
 
         return $this->showForAdmin($actor, $collateralId, $validated);
     }
@@ -186,7 +190,7 @@ class PrmResourceManagementService
         ]);
         $fresh = $collateral->fresh();
         $this->auditPrm($actor, $request, 'prm.resource.status', $fresh, $before, $fresh?->toArray());
-        $this->bumpVersion($tenantId);
+        $this->cacheInvalidation->afterCollateralMutation($tenantId);
 
         return $this->showForAdmin($actor, $collateralId, $context);
     }
@@ -202,7 +206,7 @@ class PrmResourceManagementService
         $collateral->delete();
         $this->auditPrm($actor, $request, 'prm.resource.deleted', $collateral, $before, null);
         Log::info('prm.resource.deleted', ['tenant_id' => $tenantId, 'collateral_id' => $collateralId]);
-        $this->bumpVersion($tenantId);
+        $this->cacheInvalidation->afterCollateralMutation($tenantId);
     }
 
     private function resolveTenantIdForList(User $actor, array $filters): int
@@ -255,7 +259,7 @@ class PrmResourceManagementService
     {
         $fileName = $this->buildStoredFileName($file);
         $fileKey = "tenant/{$tenantId}/collaterals/{$fileName}";
-        Storage::disk($this->storageDisk())->put($fileKey, $file->getContent(), ['visibility' => 'private']);
+        $this->storage->putPrivate($fileKey, $file->getContent(), EnterpriseStorage::PURPOSE_COLLATERAL);
 
         return $fileKey;
     }
@@ -267,18 +271,6 @@ class PrmResourceManagementService
         $safeOriginalName = $safeOriginalName !== '' ? $safeOriginalName : 'file';
 
         return sprintf('%s-%s.%s', Str::uuid()->toString(), $safeOriginalName, $extension);
-    }
-
-    private function storageDisk(): string
-    {
-        return (string) env('COLLATERAL_STORAGE_DISK', 's3');
-    }
-
-    private function bumpVersion(int $tenantId): void
-    {
-        $key = "collaterals:tenant:{$tenantId}:version";
-        Cache::add($key, 1, now()->addDays(30));
-        Cache::increment($key);
     }
 
     private function auditPrm(User $actor, Request $request, string $action, Collateral $collateral, ?array $before, ?array $after): void

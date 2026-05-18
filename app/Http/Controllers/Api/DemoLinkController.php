@@ -11,7 +11,7 @@ use App\Support\DemoLinks\DemoLinkAccessScope;
 use App\Support\DomainConstants;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
+use App\Support\Storage\EnterpriseStorage;
 use Illuminate\Support\Facades\URL;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -22,6 +22,7 @@ class DemoLinkController extends Controller
     public function __construct(
         private readonly DemoLinkManagementService $demoLinkService,
         private readonly DemoLinkAccessScope $accessScope,
+        private readonly EnterpriseStorage $storage,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -155,12 +156,11 @@ class DemoLinkController extends Controller
             abort(404);
         }
 
-        $disk = Storage::disk('local');
-        if (! $disk->exists($link->screenshot_path)) {
+        if (! $this->storage->exists($link->screenshot_path)) {
             abort(404);
         }
 
-        return $disk->response($link->screenshot_path);
+        return $this->storage->response($link->screenshot_path);
     }
 
     /**

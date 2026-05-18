@@ -11,10 +11,12 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
+use Tests\Concerns\ConfiguresEnterpriseStorage;
 use Tests\TestCase;
 
 class CollateralManagementTest extends TestCase
 {
+    use ConfiguresEnterpriseStorage;
     use RefreshDatabase;
 
     public function test_user_can_upload_collateral_with_product_association(): void
@@ -29,8 +31,7 @@ class CollateralManagementTest extends TestCase
             'status' => Product::STATUS_ACTIVE,
         ]);
 
-        Storage::fake('s3');
-        config(['filesystems.default' => 's3']);
+        $this->fakeEnterpriseStorage('s3');
         Sanctum::actingAs($user);
 
         $response = $this->post('/api/collaterals', [
@@ -56,8 +57,7 @@ class CollateralManagementTest extends TestCase
             'status' => Product::STATUS_ACTIVE,
         ]);
 
-        Storage::fake('s3');
-        config(['filesystems.default' => 's3']);
+        $this->fakeEnterpriseStorage('s3');
         Sanctum::actingAs($admin);
         $collateralId = (int) $this->post('/api/collaterals', [
             'product_id' => $product->id,
@@ -83,8 +83,7 @@ class CollateralManagementTest extends TestCase
             'status' => Product::STATUS_ACTIVE,
         ]);
 
-        Storage::fake('s3');
-        config(['filesystems.default' => 's3']);
+        $this->fakeEnterpriseStorage('s3');
         Mail::fake();
         Sanctum::actingAs($user);
 
@@ -119,8 +118,7 @@ class CollateralManagementTest extends TestCase
             'status' => Product::STATUS_ACTIVE,
         ]);
 
-        Storage::fake('s3');
-        config(['filesystems.default' => 's3']);
+        $this->fakeEnterpriseStorage('s3');
         Sanctum::actingAs($adminA);
         $collateralId = (int) $this->post('/api/collaterals', [
             'product_id' => $productA->id,
@@ -145,8 +143,7 @@ class CollateralManagementTest extends TestCase
             'status' => Product::STATUS_ACTIVE,
         ]);
 
-        Storage::fake('s3');
-        config(['filesystems.default' => 's3']);
+        $this->fakeEnterpriseStorage('s3');
         Sanctum::actingAs($admin);
         $collateralId = (int) $this->post('/api/collaterals', [
             'product_id' => $product->id,
@@ -175,8 +172,7 @@ class CollateralManagementTest extends TestCase
             'status' => Product::STATUS_ACTIVE,
         ]);
 
-        Storage::fake('s3');
-        config(['filesystems.default' => 's3']);
+        $this->fakeEnterpriseStorage('s3');
         Sanctum::actingAs($adminB);
         $this->post('/api/collaterals', [
             'product_id' => $productA->id,

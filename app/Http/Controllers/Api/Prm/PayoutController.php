@@ -12,7 +12,7 @@ use App\Services\Prm\PayoutWorkflowService;
 use App\Support\DomainConstants;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
+use App\Support\Storage\EnterpriseStorage;
 
 class PayoutController extends Controller
 {
@@ -23,6 +23,7 @@ class PayoutController extends Controller
         private readonly PayoutWorkflowService $workflowService,
         private readonly PayoutStatementService $statementService,
         private readonly PayoutReconciliationService $reconciliationService,
+        private readonly EnterpriseStorage $storage,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -181,11 +182,11 @@ class PayoutController extends Controller
     public function proof(Request $request, int $payoutId)
     {
         $payout = $this->generationService->findForActor($request->user(), $payoutId);
-        if (! $payout->supporting_document_path || ! Storage::disk('local')->exists($payout->supporting_document_path)) {
+        if (! $payout->supporting_document_path || ! $this->storage->exists($payout->supporting_document_path)) {
             return $this->errorResponse('Payment proof not found.', null, 404);
         }
 
-        return Storage::disk('local')->download($payout->supporting_document_path);
+        return $this->storage->downloadResponse($payout->supporting_document_path);
     }
 
     /**

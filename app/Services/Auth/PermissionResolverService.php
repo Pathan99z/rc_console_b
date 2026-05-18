@@ -4,10 +4,14 @@ namespace App\Services\Auth;
 
 use App\Models\User;
 use App\Support\Access\PermissionProfileResolver;
+use App\Support\Cache\UserBootstrapCache;
 
 class PermissionResolverService
 {
-    public function __construct(private readonly PermissionProfileResolver $profileResolver) {}
+    public function __construct(
+        private readonly PermissionProfileResolver $profileResolver,
+        private readonly UserBootstrapCache $userBootstrapCache,
+    ) {}
 
     /**
      * @return list<string>
@@ -22,7 +26,10 @@ class PermissionResolverService
      */
     public function permissions(User $user): array
     {
-        return $this->profileResolver->permissions($user);
+        return $this->userBootstrapCache->rememberPermissions(
+            $user,
+            fn () => $this->profileResolver->permissions($user)
+        );
     }
 
     public function can(User $user, string $permission): bool

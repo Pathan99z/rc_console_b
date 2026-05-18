@@ -13,9 +13,9 @@ use App\Models\Collateral;
 use App\Services\Prm\PrmResourceAnalyticsService;
 use App\Services\Prm\PrmResourceManagementService;
 use App\Support\DomainConstants;
+use App\Support\Storage\EnterpriseStorage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 
 class PrmResourceController extends Controller
 {
@@ -24,6 +24,7 @@ class PrmResourceController extends Controller
     public function __construct(
         private readonly PrmResourceManagementService $managementService,
         private readonly PrmResourceAnalyticsService $analyticsService,
+        private readonly EnterpriseStorage $storage,
     ) {}
 
     public function analytics(PrmResourceAnalyticsRequest $request): JsonResponse
@@ -172,18 +173,10 @@ class PrmResourceController extends Controller
 
     private function signedUrlForPrmResource(string $fileKey): string
     {
-        $disk = Storage::disk($this->collateralStorageDisk());
-        $expiresAt = now()->addMinutes((int) env('COLLATERAL_SIGNED_URL_MINUTES', 10));
-
-        try {
-            return $disk->temporaryUrl($fileKey, $expiresAt);
-        } catch (\Throwable) {
-            return $disk->url($fileKey);
-        }
-    }
-
-    private function collateralStorageDisk(): string
-    {
-        return (string) env('COLLATERAL_STORAGE_DISK', 's3');
+        return $this->storage->signedUrl(
+            $fileKey,
+            (int) config('enterprise_storage.collateral_signed_url_minutes', 10),
+            EnterpriseStorage::PURPOSE_COLLATERAL
+        );
     }
 }

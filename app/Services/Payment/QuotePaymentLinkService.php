@@ -12,7 +12,7 @@ use App\Support\DomainConstants;
 use Illuminate\Support\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
+use App\Support\Mail\EnterpriseMailDispatcher;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -23,6 +23,7 @@ class QuotePaymentLinkService
         private readonly PayFastService $payFastService,
         private readonly QuotePaymentLinkRepository $quotePaymentLinkRepository,
         private readonly TenantPaymentSettingRepository $tenantPaymentSettingRepository,
+        private readonly EnterpriseMailDispatcher $mailDispatcher,
     ) {
     }
 
@@ -73,7 +74,7 @@ class QuotePaymentLinkService
             ]);
         }
 
-        Mail::to($recipientEmail)->send(new QuotePaymentLinkMail(
+        $this->mailDispatcher->send($recipientEmail, new QuotePaymentLinkMail(
             quoteNumber: (string) $quote->quote_number,
             customerName: trim((string) (($quote->contact?->first_name ?? '').' '.($quote->contact?->last_name ?? ''))),
             total: (string) $quote->total,

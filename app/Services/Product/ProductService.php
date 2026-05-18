@@ -10,7 +10,8 @@ use App\Support\DomainConstants;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
+use App\Services\Cache\CacheInvalidationService;
+use App\Support\Cache\TenantListCache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -21,15 +22,23 @@ class ProductService
     public function __construct(
         private readonly ProductRepository $productRepository,
         private readonly AuditLogRepository $auditLogRepository,
+        private readonly TenantListCache $tenantListCache,
+        private readonly CacheInvalidationService $cacheInvalidation,
     ) {
     }
 
     public function listProducts(User $actor, array $filters, int $perPage): LengthAwarePaginator
     {
         $tenantId = $actor->isGlobalAdmin() ? ($filters['tenant_id'] ?? null) : $actor->tenant_id;
-        $key = $this->buildCacheKey($tenantId, $filters, $perPage);
-
-        return Cache::remember($key, now()->addMinutes(10), fn () => $this->productRepository->paginateFiltered($actor, $filters, $perPage));
+        return $this->tenantListCache->remember(
+            $actor,
+            'products',
+            $tenantId,
+            $filters,
+            $perPage,
+            (int) config('enterprise_cache.ttl.list_products', 600),
+            fn () => $this->productRepository->paginateFiltered($actor, $filters, $perPage),
+        );
     }
 
     public function createProduct(User $actor, array $payload, Request $request): Product
@@ -52,7 +61,7 @@ class ProductService
 
         $this->recordAudit($actor, $request, 'created', $product, null, $product->toArray());
         Log::info(DomainConstants::LOG_PRODUCT_CREATED, ['tenant_id' => $tenantId, 'product_id' => $product->id]);
-        $this->bumpVersion($tenantId);
+        $this->cacheInvalidation->afterProductMutation((int) $tenantId);
 
         return $this->mustGetProduct($product->id);
     }
@@ -87,7 +96,7 @@ class ProductService
         $updated = $this->productRepository->update($product, $payload);
         $this->recordAudit($actor, $request, 'updated', $updated, $before, $updated->toArray());
         Log::info(DomainConstants::LOG_PRODUCT_UPDATED, ['tenant_id' => $updated->tenant_id, 'product_id' => $updated->id]);
-        $this->bumpVersion((int) $updated->tenant_id);
+        $this->cacheInvalidation->afterProductMutation((int) $updated->tenant_id);
 
         return $this->mustGetProduct($updated->id);
     }
@@ -106,7 +115,7 @@ class ProductService
         $this->productRepository->delete($product);
         $this->recordAudit($actor, $request, 'deleted', $product, $before, null);
         Log::info(DomainConstants::LOG_PRODUCT_DELETED, ['tenant_id' => $product->tenant_id, 'product_id' => $product->id]);
-        $this->bumpVersion((int) $product->tenant_id);
+        $this->cacheInvalidation->afterProductMutation((int) $product->tenant_id);
     }
 
     public function updateStatus(User $actor, int $productId, int $status, Request $request): Product
@@ -123,7 +132,7 @@ class ProductService
         ]);
         $this->recordAudit($actor, $request, 'status_changed', $updated, $before, $updated->toArray());
         Log::info(DomainConstants::LOG_PRODUCT_STATUS_CHANGED, ['tenant_id' => $updated->tenant_id, 'product_id' => $updated->id, 'status' => $status]);
-        $this->bumpVersion((int) $updated->tenant_id);
+        $this->cacheInvalidation->afterProductMutation((int) $updated->tenant_id);
 
         return $this->mustGetProduct($updated->id);
     }
@@ -238,21 +247,4 @@ class ProductService
         ]);
     }
 
-    private function buildCacheKey(?int $tenantId, array $filters, int $perPage): string
-    {
-        $version = Cache::get($this->versionKey($tenantId), 1);
-
-        return "products:tenant:{$tenantId}:v:{$version}:p:{$perPage}:f:".md5(json_encode($filters));
-    }
-
-    private function bumpVersion(?int $tenantId): void
-    {
-        Cache::add($this->versionKey($tenantId), 1, now()->addDays(30));
-        Cache::increment($this->versionKey($tenantId));
-    }
-
-    private function versionKey(?int $tenantId): string
-    {
-        return "products:tenant:{$tenantId}:version";
-    }
 }

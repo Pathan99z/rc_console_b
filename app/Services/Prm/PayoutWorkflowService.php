@@ -10,8 +10,8 @@ use App\Models\User;
 use App\Support\Prm\CommissionAccrualTransition;
 use App\Support\Prm\PayoutAccessScope;
 use Illuminate\Http\UploadedFile;
+use App\Support\Storage\EnterpriseStorage;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class PayoutWorkflowService
@@ -20,6 +20,7 @@ class PayoutWorkflowService
         private readonly PayoutAccessScope $accessScope,
         private readonly PayoutAuditLogger $auditLogger,
         private readonly PayoutGenerationService $generationService,
+        private readonly EnterpriseStorage $storage,
     ) {}
 
     public function submit(User $actor, int $payoutId, ?string $ip = null, ?string $ua = null): Payout
@@ -111,7 +112,10 @@ class PayoutWorkflowService
 
             $path = $payout->supporting_document_path;
             if ($proof) {
-                $path = $proof->store("tenant/{$payout->tenant_id}/payouts/{$payout->id}", 'local');
+                $path = $this->storage->storeUploadedFile(
+                    $proof,
+                    "tenant/{$payout->tenant_id}/payouts/{$payout->id}"
+                );
             }
 
             $paidAt = ! empty($data['payment_date']) ? $data['payment_date'] : now();

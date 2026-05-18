@@ -3,35 +3,18 @@
 namespace App\Services\Organization;
 
 use App\Models\User;
+use App\Support\Cache\DashboardCacheManager;
 use App\Support\Dashboard\DashboardMetricsRepository;
 use App\Support\Dashboard\DashboardScope;
 use App\Support\Dashboard\DashboardScopeResolver;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Cache;
 
 class OrganizationDashboardService
 {
-    private const TTL_OVERVIEW = 600;
-
-    private const TTL_PIPELINE = 600;
-
-    private const TTL_REVENUE = 600;
-
-    private const TTL_COMMISSIONS = 600;
-
-    private const TTL_PAYOUTS = 600;
-
-    private const TTL_LICENSES = 600;
-
-    private const TTL_RESOURCES = 600;
-
-    private const TTL_ACTIVITY = 120;
-
-    private const TTL_TEAM = 300;
-
     public function __construct(
         private readonly DashboardScopeResolver $scopeResolver,
         private readonly DashboardMetricsRepository $metricsRepository,
+        private readonly DashboardCacheManager $dashboardCache,
     ) {}
 
     /**
@@ -40,7 +23,7 @@ class OrganizationDashboardService
      */
     public function overview(User $actor, int $organizationId, array $filters = []): array
     {
-        return $this->remember($actor, $organizationId, 'overview', self::TTL_OVERVIEW, $filters, function (DashboardScope $scope, ?Carbon $from, ?Carbon $to): array {
+        return $this->remember($actor, $organizationId, 'overview', (int) config('enterprise_cache.ttl.org_dashboard_overview', 600), $filters, function (DashboardScope $scope, ?Carbon $from, ?Carbon $to): array {
             return $this->wrapPayload($scope, $from, $to, [
                 'kpis' => $this->metricsRepository->overview($scope, $from, $to),
             ]);
@@ -53,7 +36,7 @@ class OrganizationDashboardService
      */
     public function pipeline(User $actor, int $organizationId, array $filters = []): array
     {
-        return $this->remember($actor, $organizationId, 'pipeline', self::TTL_PIPELINE, $filters, function (DashboardScope $scope, ?Carbon $from, ?Carbon $to): array {
+        return $this->remember($actor, $organizationId, 'pipeline', (int) config('enterprise_cache.ttl.org_dashboard_pipeline', 600), $filters, function (DashboardScope $scope, ?Carbon $from, ?Carbon $to): array {
             return $this->wrapPayload($scope, $from, $to, [
                 'pipeline' => $this->metricsRepository->pipeline($scope, $from, $to),
             ]);
@@ -66,7 +49,7 @@ class OrganizationDashboardService
      */
     public function revenue(User $actor, int $organizationId, array $filters = []): array
     {
-        return $this->remember($actor, $organizationId, 'revenue', self::TTL_REVENUE, $filters, function (DashboardScope $scope, ?Carbon $from, ?Carbon $to): array {
+        return $this->remember($actor, $organizationId, 'revenue', (int) config('enterprise_cache.ttl.org_dashboard_revenue', 600), $filters, function (DashboardScope $scope, ?Carbon $from, ?Carbon $to): array {
             return $this->wrapPayload($scope, $from, $to, [
                 'revenue' => $this->metricsRepository->revenue($scope, $from, $to),
             ]);
@@ -79,7 +62,7 @@ class OrganizationDashboardService
      */
     public function commissions(User $actor, int $organizationId, array $filters = []): array
     {
-        return $this->remember($actor, $organizationId, 'commissions', self::TTL_COMMISSIONS, $filters, function (DashboardScope $scope, ?Carbon $from, ?Carbon $to): array {
+        return $this->remember($actor, $organizationId, 'commissions', (int) config('enterprise_cache.ttl.org_dashboard_commissions', 600), $filters, function (DashboardScope $scope, ?Carbon $from, ?Carbon $to): array {
             return $this->wrapPayload($scope, $from, $to, [
                 'commissions' => $this->metricsRepository->commissions($scope, $from, $to),
             ]);
@@ -92,7 +75,8 @@ class OrganizationDashboardService
      */
     public function payouts(User $actor, int $organizationId, array $filters = []): array
     {
-        return $this->remember($actor, $organizationId, 'payouts', self::TTL_PAYOUTS, $filters, function (DashboardScope $scope, ?Carbon $from, ?Carbon $to): array {
+        return $this->remember($actor, $organizationId, 'payouts', (int) config('enterprise_cache.ttl.org_dashboard_payouts', 600), $filters, function (DashboardScope $scope, ?Carbon $from, ?Carbon $to): array
+        {
             return $this->wrapPayload($scope, $from, $to, [
                 'payouts' => $this->metricsRepository->payoutsSection($scope, $from, $to),
             ]);
@@ -105,7 +89,7 @@ class OrganizationDashboardService
      */
     public function licenses(User $actor, int $organizationId, array $filters = []): array
     {
-        return $this->remember($actor, $organizationId, 'licenses', self::TTL_LICENSES, $filters, function (DashboardScope $scope, ?Carbon $from, ?Carbon $to): array {
+        return $this->remember($actor, $organizationId, 'licenses', (int) config('enterprise_cache.ttl.org_dashboard_licenses', 600), $filters, function (DashboardScope $scope, ?Carbon $from, ?Carbon $to): array {
             return $this->wrapPayload($scope, $from, $to, [
                 'licenses' => $this->metricsRepository->licenses($scope, $from, $to),
             ]);
@@ -118,7 +102,7 @@ class OrganizationDashboardService
      */
     public function activity(User $actor, int $organizationId, array $filters = []): array
     {
-        return $this->remember($actor, $organizationId, 'activity', self::TTL_ACTIVITY, $filters, function (DashboardScope $scope, ?Carbon $from, ?Carbon $to): array {
+        return $this->remember($actor, $organizationId, 'activity', (int) config('enterprise_cache.ttl.org_dashboard_activity', 120), $filters, function (DashboardScope $scope, ?Carbon $from, ?Carbon $to): array {
             return $this->wrapPayload($scope, $from, $to, [
                 'activity' => $this->metricsRepository->activity($scope, $from, $to),
             ]);
@@ -131,7 +115,7 @@ class OrganizationDashboardService
      */
     public function team(User $actor, int $organizationId, array $filters = []): array
     {
-        return $this->remember($actor, $organizationId, 'team', self::TTL_TEAM, $filters, function (DashboardScope $scope, ?Carbon $from, ?Carbon $to): array {
+        return $this->remember($actor, $organizationId, 'team', (int) config('enterprise_cache.ttl.org_dashboard_team', 300), $filters, function (DashboardScope $scope, ?Carbon $from, ?Carbon $to): array {
             return $this->wrapPayload($scope, $from, $to, [
                 'team' => $this->metricsRepository->team($scope, $from, $to),
             ]);
@@ -144,7 +128,7 @@ class OrganizationDashboardService
      */
     public function resources(User $actor, int $organizationId, array $filters = []): array
     {
-        return $this->remember($actor, $organizationId, 'resources', self::TTL_RESOURCES, $filters, function (DashboardScope $scope, ?Carbon $from, ?Carbon $to): array {
+        return $this->remember($actor, $organizationId, 'resources', (int) config('enterprise_cache.ttl.org_dashboard_resources', 600), $filters, function (DashboardScope $scope, ?Carbon $from, ?Carbon $to): array {
             return $this->wrapPayload($scope, $from, $to, [
                 'resources' => $this->metricsRepository->resources($scope, $from, $to),
             ]);
@@ -166,14 +150,9 @@ class OrganizationDashboardService
 
     public static function flushCache(int $tenantId, int $organizationId): void
     {
-        $pattern = "dashboard:{$tenantId}:{$organizationId}:*";
-        if (config('cache.default') === 'array') {
-            Cache::flush();
-
-            return;
-        }
-        // Tagless flush: bump version key for org dashboards.
-        Cache::put("dashboard:{$tenantId}:{$organizationId}:version", (string) microtime(true), 86400);
+        $manager = app(DashboardCacheManager::class);
+        $manager->invalidateOrganization($tenantId, $organizationId);
+        $manager->invalidateTenantEpoch($tenantId);
     }
 
     /**
@@ -185,17 +164,18 @@ class OrganizationDashboardService
     {
         $scope = $this->scopeResolver->resolve($actor, $organizationId);
         [$from, $to] = $this->parsePeriod($filters);
-        $version = Cache::get("dashboard:{$scope->tenantId}:{$organizationId}:version", '1');
+        $versions = $this->dashboardCache->organizationVersions($scope->tenantId, $organizationId);
         $key = sprintf(
-            'dashboard:%d:%d:%s:%s:%s:v1',
+            'dashboard:%d:%d:%s:%s:%s:v2:%s',
             $scope->tenantId,
             $organizationId,
             $section,
             $from?->toDateString() ?? 'all',
             $to?->toDateString() ?? 'all',
-        ).':'.$version;
+            $versions,
+        );
 
-        return Cache::remember($key, $ttl, fn () => $builder($scope, $from, $to));
+        return $this->dashboardCache->remember($key, $ttl, fn () => $builder($scope, $from, $to));
     }
 
     /**

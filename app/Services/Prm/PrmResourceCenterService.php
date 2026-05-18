@@ -10,8 +10,7 @@ use App\Services\Auth\PermissionResolverService;
 use App\Support\Prm\PartnerResourceVisibility;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Filesystem\FilesystemAdapter;
-use Illuminate\Support\Facades\Storage;
+use App\Support\Storage\EnterpriseStorage;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -23,6 +22,7 @@ class PrmResourceCenterService
     public function __construct(
         private readonly PermissionResolverService $permissionResolver,
         private readonly AuditLogRepository $auditLogRepository,
+        private readonly EnterpriseStorage $storage,
     ) {}
 
     public function listForPartner(User $actor, array $filters, int $perPage): LengthAwarePaginator
@@ -135,19 +135,10 @@ class PrmResourceCenterService
 
     private function generateSignedUrl(string $fileKey): string
     {
-        /** @var FilesystemAdapter $disk */
-        $disk = Storage::disk($this->storageDisk());
-        $expiresAt = now()->addMinutes((int) env('COLLATERAL_SIGNED_URL_MINUTES', 10));
-
-        try {
-            return $disk->temporaryUrl($fileKey, $expiresAt);
-        } catch (\Throwable) {
-            return $disk->url($fileKey);
-        }
-    }
-
-    private function storageDisk(): string
-    {
-        return (string) env('COLLATERAL_STORAGE_DISK', 's3');
+        return $this->storage->signedUrl(
+            $fileKey,
+            (int) config('enterprise_storage.collateral_signed_url_minutes', 10),
+            EnterpriseStorage::PURPOSE_COLLATERAL
+        );
     }
 }

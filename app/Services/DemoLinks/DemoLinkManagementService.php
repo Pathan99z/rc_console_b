@@ -11,8 +11,8 @@ use App\Support\DemoLinks\DemoLinkAccessScope;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\UploadedFile;
+use App\Support\Storage\EnterpriseStorage;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class DemoLinkManagementService
@@ -22,6 +22,7 @@ class DemoLinkManagementService
         private readonly DemoLinkAuditLogger $auditLogger,
         private readonly DemoLinkStatusChecker $statusChecker,
         private readonly PaymentSecretEncrypter $encrypter,
+        private readonly EnterpriseStorage $storage,
     ) {}
 
     /**
@@ -106,7 +107,10 @@ class DemoLinkManagementService
 
             if ($screenshot) {
                 $link->update([
-                    'screenshot_path' => $screenshot->store("tenant/{$tenantId}/demo-links/{$link->id}", 'local'),
+                    'screenshot_path' => $this->storage->storeUploadedFile(
+                        $screenshot,
+                        "tenant/{$tenantId}/demo-links/{$link->id}"
+                    ),
                 ]);
             }
 
@@ -161,9 +165,12 @@ class DemoLinkManagementService
 
         if ($screenshot) {
             if ($link->screenshot_path) {
-                Storage::disk('local')->delete($link->screenshot_path);
+                $this->storage->delete($link->screenshot_path);
             }
-            $link->screenshot_path = $screenshot->store("tenant/{$link->tenant_id}/demo-links/{$link->id}", 'local');
+            $link->screenshot_path = $this->storage->storeUploadedFile(
+                $screenshot,
+                "tenant/{$link->tenant_id}/demo-links/{$link->id}"
+            );
         }
 
         $link->save();
@@ -191,7 +198,7 @@ class DemoLinkManagementService
         $before = $this->auditPayload($link);
 
         if ($link->screenshot_path) {
-            Storage::disk('local')->delete($link->screenshot_path);
+            $this->storage->delete($link->screenshot_path);
         }
 
         $link->delete();

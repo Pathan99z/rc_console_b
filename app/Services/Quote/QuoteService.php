@@ -20,11 +20,12 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Cache;
+use App\Services\Cache\CacheInvalidationService;
+use App\Support\Cache\TenantListCache;
+use App\Support\Mail\EnterpriseMailDispatcher;
+use App\Support\Storage\EnterpriseStorage;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use App\Events\Notifications\QuoteAccepted;
@@ -37,15 +38,25 @@ class QuoteService
     public function __construct(
         private readonly QuoteRepository $quoteRepository,
         private readonly AuditLogRepository $auditLogRepository,
+        private readonly TenantListCache $tenantListCache,
+        private readonly CacheInvalidationService $cacheInvalidation,
+        private readonly EnterpriseMailDispatcher $mailDispatcher,
+        private readonly EnterpriseStorage $storage,
     ) {
     }
 
     public function listQuotes(User $actor, array $filters, int $perPage): LengthAwarePaginator
     {
         $tenantId = $actor->isGlobalAdmin() ? ($filters['tenant_id'] ?? null) : $actor->tenant_id;
-        $key = $this->buildCacheKey($tenantId, $filters, $perPage);
-
-        return Cache::remember($key, now()->addMinutes(10), fn () => $this->quoteRepository->paginateFiltered($actor, $filters, $perPage));
+        return $this->tenantListCache->remember(
+            $actor,
+            'quotes',
+            $tenantId,
+            $filters,
+            $perPage,
+            (int) config('enterprise_cache.ttl.list_quotes', 600),
+            fn () => $this->quoteRepository->paginateFiltered($actor, $filters, $perPage),
+        );
     }
 
     public function createQuote(User $actor, array $payload, Request $request): Quote
@@ -78,7 +89,7 @@ class QuoteService
             $this->syncDealFromQuote($deal, $quote, false);
             $this->recordAudit($actor, $request, 'created', $quote, null, $quote->toArray());
             Log::info(DomainConstants::LOG_QUOTE_CREATED, ['tenant_id' => $tenantId, 'quote_id' => $quote->id]);
-            $this->bumpVersion($tenantId);
+            $this->cacheInvalidation->afterQuoteMutation($tenantId, null);
 
             return $this->mustGetQuote($quote->id);
         });
@@ -121,7 +132,7 @@ class QuoteService
             $this->syncDealFromQuote($deal, $updated, false);
             $this->recordAudit($actor, $request, 'updated', $updated, $before, $updated->toArray());
             Log::info(DomainConstants::LOG_QUOTE_UPDATED, ['tenant_id' => $tenantId, 'quote_id' => $quoteId]);
-            $this->bumpVersion($tenantId);
+            $this->cacheInvalidation->afterQuoteMutation($tenantId, null);
 
             return $this->mustGetQuote($updated->id);
         });
@@ -141,7 +152,7 @@ class QuoteService
         $this->syncDealFromQuote($deal, $updated, $next === Quote::STATUS_ACCEPTED);
         $this->recordAudit($actor, $request, 'status_changed', $updated, $before, $updated->toArray());
         Log::info(DomainConstants::LOG_QUOTE_STATUS_CHANGED, ['tenant_id' => $quote->tenant_id, 'quote_id' => $quoteId, 'status' => $status]);
-        $this->bumpVersion((int) $quote->tenant_id);
+        $this->invalidateQuoteCache($quote);
 
         return $this->mustGetQuote($updated->id);
     }
@@ -156,7 +167,7 @@ class QuoteService
         $this->quoteRepository->delete($quote);
         $this->recordAudit($actor, $request, 'deleted', $quote, $before, null);
         Log::info(DomainConstants::LOG_QUOTE_DELETED, ['tenant_id' => $quote->tenant_id, 'quote_id' => $quoteId]);
-        $this->bumpVersion((int) $quote->tenant_id);
+        $this->invalidateQuoteCache($quote);
     }
 
     public function uploadAttachment(User $actor, int $quoteId, string $name, UploadedFile $file, Request $request): QuoteAttachment
@@ -165,7 +176,7 @@ class QuoteService
         $tenantId = (int) $quote->tenant_id;
         $fileName = Str::uuid().'.'.$file->getClientOriginalExtension();
         $fileKey = "tenant/{$tenantId}/quotes/{$quote->id}/attachments/{$fileName}";
-        Storage::disk($this->storageDisk())->put($fileKey, $file->getContent(), ['visibility' => 'private']);
+        $this->storage->putPrivate($fileKey, $file->getContent(), EnterpriseStorage::PURPOSE_QUOTE);
         $attachment = $this->quoteRepository->createAttachment([
             'tenant_id' => $tenantId,
             'quote_id' => $quote->id,
@@ -196,7 +207,7 @@ class QuoteService
         $pdfBinary = $attachPdf ? $this->buildQuotePdfBinary($quote, $layoutCode) : null;
         $pdfFileName = $attachPdf ? strtolower((string) $quote->quote_number).'.pdf' : null;
 
-        Mail::to($recipientEmail)->send(new QuoteSharedMail(
+        $this->mailDispatcher->send($recipientEmail, new QuoteSharedMail(
             quoteNumber: (string) $quote->quote_number,
             customerName: trim((string) (($quote->contact?->first_name ?? '').' '.($quote->contact?->last_name ?? ''))),
             total: (string) $quote->total,
@@ -221,7 +232,7 @@ class QuoteService
             'attach_pdf' => $attachPdf,
         ]));
         Log::info(DomainConstants::LOG_QUOTE_SENT, ['tenant_id' => $updated->tenant_id, 'quote_id' => $updated->id]);
-        $this->bumpVersion((int) $updated->tenant_id);
+        $this->invalidateQuoteCache($updated);
 
         event(new QuoteSent($updated->id, $actor->id));
 
@@ -237,7 +248,7 @@ class QuoteService
         $viewUrl = "{$publicBaseUrl}/quotes/public/{$token}";
         $paymentUrl = "{$publicBaseUrl}/quotes/public/{$token}?action=pay";
 
-        Mail::to($recipientEmail)->send(new QuotePaymentLinkMail(
+        $this->mailDispatcher->send($recipientEmail, new QuotePaymentLinkMail(
             quoteNumber: (string) $quote->quote_number,
             customerName: trim((string) (($quote->contact?->first_name ?? '').' '.($quote->contact?->last_name ?? ''))),
             total: (string) $quote->total,
@@ -258,7 +269,7 @@ class QuoteService
             'payment_url' => $paymentUrl,
         ]));
         Log::info(DomainConstants::LOG_QUOTE_PAYMENT_LINK_SENT, ['tenant_id' => $updated->tenant_id, 'quote_id' => $updated->id]);
-        $this->bumpVersion((int) $updated->tenant_id);
+        $this->invalidateQuoteCache($updated);
 
         return $this->mustGetQuote($updated->id);
     }
@@ -307,7 +318,10 @@ class QuoteService
             'tenant_id' => $fresh->tenant_id,
             'quote_id' => $fresh->id,
         ]);
-        $this->bumpVersion((int) $fresh->tenant_id);
+        $this->cacheInvalidation->afterPaymentMutation(
+            (int) $fresh->tenant_id,
+            $fresh->channel_organization_id !== null ? (int) $fresh->channel_organization_id : null
+        );
 
         event(new QuotePaymentSucceeded($fresh->id, null, $paymentRecordId));
     }
@@ -707,7 +721,7 @@ class QuoteService
                 'quote_id' => $updated->id,
                 'status' => $updated->statusLabel(),
             ]);
-            $this->bumpVersion((int) $updated->tenant_id);
+            $this->invalidateQuoteCache($updated);
 
             if ($targetStatus === Quote::STATUS_ACCEPTED) {
                 event(new QuoteAccepted($updated->id));
@@ -760,35 +774,14 @@ class QuoteService
 
     private function signedUrl(string $fileKey): string
     {
-        /** @var \Illuminate\Filesystem\FilesystemAdapter $disk */
-        $disk = Storage::disk($this->storageDisk());
-        try {
-            return $disk->temporaryUrl($fileKey, now()->addMinutes(10));
-        } catch (\Throwable) {
-            return $disk->url($fileKey);
-        }
+        return $this->storage->signedUrl($fileKey, null, EnterpriseStorage::PURPOSE_QUOTE);
     }
 
-    private function storageDisk(): string
+    private function invalidateQuoteCache(Quote $quote): void
     {
-        return (string) env('QUOTE_STORAGE_DISK', env('COLLATERAL_STORAGE_DISK', 'local'));
-    }
-
-    private function buildCacheKey(?int $tenantId, array $filters, int $perPage): string
-    {
-        $version = Cache::get($this->versionKey($tenantId), 1);
-
-        return "quotes:tenant:{$tenantId}:v:{$version}:p:{$perPage}:f:".md5(json_encode($filters));
-    }
-
-    private function bumpVersion(?int $tenantId): void
-    {
-        Cache::add($this->versionKey($tenantId), 1, now()->addDays(30));
-        Cache::increment($this->versionKey($tenantId));
-    }
-
-    private function versionKey(?int $tenantId): string
-    {
-        return "quotes:tenant:{$tenantId}:version";
+        $this->cacheInvalidation->afterQuoteMutation(
+            (int) $quote->tenant_id,
+            $quote->channel_organization_id !== null ? (int) $quote->channel_organization_id : null
+        );
     }
 }
